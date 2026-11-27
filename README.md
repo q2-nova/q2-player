@@ -29,6 +29,8 @@ Use the [target build guide](docs/target-build.md) for local development and
 the [release candidate guide](docs/release-candidate.md) to build and verify
 the complete emulator package. See the [architecture](docs/architecture.md)
 for the native player and browser demo boundaries.
+The [specification](docs/specification.md) lists what the player must do,
+and the [changelog](CHANGELOG.md) records completed work.
 
 ## Building a release candidate
 

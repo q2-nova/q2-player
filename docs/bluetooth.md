@@ -5,6 +5,8 @@ The player streams to Bluetooth headphones with its own host stack, inside
 kernel Bluetooth subsystem. The wiring, the kernel support (UART0 pins, the
 `bt-power` hold, the 3 Mbaud UART) and the firmware files are in q2-os
 [docs/bluetooth.md](https://github.com/q2-nova/q2-os/blob/main/docs/bluetooth.md).
+Requirements BLUETOOTH-001 to BLUETOOTH-003 and EQ-OUTPUT-001 are in the
+[specification](specification.md#bluetooth).
 
 ## Stack
 

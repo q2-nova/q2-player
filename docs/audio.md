@@ -1,7 +1,10 @@
 # Headphone output
 
-On the Q2 the player writes S32_LE through ALSA to `hw:Q2,0`, the four
-CS43131 DACs. This page covers what the player sets in the codecs: volume,
+On the Q2 the player writes through ALSA to `hw:Q2,0`, the four CS43131
+DACs: S16_LE for sources of 16 bits or fewer and S32_LE otherwise. A change
+of width at a track boundary drains the previous track first (AUDIO-004).
+Requirements AUDIO-004 to AUDIO-008 are in the
+[specification](specification.md#audio-and-sound). This page covers what the player sets in the codecs: volume,
 the DAC filter and Headphone Power. The codec registers, board wiring and
 measured power are in q2-os
 [docs/hardware.md](https://github.com/q2-nova/q2-os/blob/main/docs/hardware.md#audio).

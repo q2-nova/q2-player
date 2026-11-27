@@ -6,7 +6,8 @@ Delta Sync with the account typed on a phone. The SkyMiles account can come
 from the card's settings file or be typed on the wheel. This guide
 shows how to start each one, what the player records, and how to report a
 failure. These flows have passed generated tests only; a real network is the
-test.
+test. The requirement is NETWORK-003 in the
+[specification](specification.md#network).
 
 ## Before you join the network
 

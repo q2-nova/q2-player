@@ -88,7 +88,7 @@ impl Engine<'_> {
             settings.skip_chapter = false;
         }
         if settings.skip_chapter && spoken.chapters.is_empty() {
-            self.error = Some("This book has no chapters; choose Time in Settings → Playback → Books & Podcasts".into());
+            self.error = Some("This book has no chapters; choose Time in Settings → Playback → Book Skip Buttons".into());
             return true;
         }
         let absolute = self.logical_position_ms();

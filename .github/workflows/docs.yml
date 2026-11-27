@@ -1,0 +1,16 @@
+name: Documents
+on: [pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Check document links and requirement IDs
+        run: python3 tools/check_docs.py
+      - name: Test the document check
+        run: python3 tools/test_check_docs.py
