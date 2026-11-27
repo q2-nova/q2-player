@@ -1,0 +1,148 @@
+name: Q2 release candidate
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release-candidate.yml'
+      - 'tools/release-candidate.py'
+      - 'tools/verify-package.py'
+      - 'tests/release/**'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Operation
+        type: choice
+        options:
+          - controls
+          - qemu-rehearsal
+          - stock-draft
+        default: controls
+      producer_run:
+        description: Successful player Actions run with the input bundle
+        type: string
+      manifest_sha256:
+        description: SHA-256 of release-inputs.json from the producer
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  controls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests/release -p 'test_*.py' -v
+
+  compose:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode != 'controls'
+    needs: controls
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      result_sha256: ${{ steps.compose.outputs.result_sha256 }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Read locked OS revision
+        id: pin
+        run: python3 -c 'import json; print("os_commit=" + json.load(open("component-lock.json"))["q2-os"])' >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: ${{ github.repository_owner }}/q2-os
+          ref: ${{ steps.pin.outputs.os_commit }}
+          token: ${{ secrets.Q2_OS_READ_TOKEN || github.token }}
+          path: build/release-os
+          persist-credentials: false
+      - name: Download exact reusable inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+          PRODUCER_RUN: ${{ inputs.producer_run }}
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+        run: |
+          [[ "$PRODUCER_RUN" =~ ^[1-9][0-9]*$ && "$MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$(gh run view "$PRODUCER_RUN" --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" == success ]]
+          gh run download "$PRODUCER_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "q2-${MODE}-inputs" --dir build/release-inputs
+      - name: Install package tools
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          packages=(cpio squashfs-tools)
+          if [[ "$MODE" == qemu-rehearsal ]]; then packages+=(podman); fi
+          sudo apt-get update
+          sudo apt-get install -y "${packages[@]}"
+      - name: Pack and verify exact candidate
+        id: compose
+        env:
+          MODE: ${{ inputs.mode }}
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+        run: |
+          python3 tools/release-candidate.py --mode "$MODE" --bundle build/release-inputs \
+            --manifest-sha256 "$MANIFEST_SHA256" --os-repo build/release-os --out build/release-candidate
+          printf 'result_sha256=%s\n' "$(sha256sum build/release-candidate/result.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - name: Transfer verified stock payload to the draft job
+        if: inputs.mode == 'stock-draft'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: q2-verified-stock-candidate
+          if-no-files-found: error
+          path: |
+            build/release-candidate/result.json
+            build/release-candidate/verified/update.tar
+            build/release-candidate/verified/hardware-qualification.json
+      - name: Retain emulator rehearsal result
+        if: inputs.mode == 'qemu-rehearsal'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: q2-emulator-rehearsal-result
+          if-no-files-found: error
+          path: build/release-candidate/result.json
+
+  draft:
+    if: inputs.mode == 'stock-draft'
+    needs: compose
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Attach exact verified stock package to a draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT_SHA256: ${{ needs.compose.outputs.result_sha256 }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name q2-verified-stock-candidate --dir candidate
+          cd candidate
+          [[ "$RESULT_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          printf '%s  result.json\n' "$RESULT_SHA256" | sha256sum --check --strict
+          read -r version package_sha hardware_sha source < <(python3 -c '
+          import json, re
+          with open("result.json") as fh:
+              result = json.load(fh)
+          assert result["mode"] == "stock-draft"
+          fields = [("version", r"V[A-Za-z0-9.]{4}"), ("update_tar_sha256", r"[a-f0-9]{64}"),
+                    ("hardware_qualification_sha256", r"[a-f0-9]{64}"), ("player_commit", r"[a-f0-9]{40}")]
+          assert all(re.fullmatch(pattern, result[field]) for field, pattern in fields)
+          print(*(result[field] for field, _ in fields))
+          ')
+          [[ "$source" == "$GITHUB_SHA" ]]
+          printf '%s  verified/update.tar\n%s  verified/hardware-qualification.json\n' \
+            "$package_sha" "$hardware_sha" | sha256sum --check --strict
+          if gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "A release or draft already exists for $version" >&2
+            exit 1
+          fi
+          printf 'Stock Q2 candidate qualified on a physical device.\n\nPackage SHA-256: %s\n' "$package_sha" > draft-notes.txt
+          gh release create "$version" verified/update.tar result.json verified/hardware-qualification.json \
+            --repo "$GITHUB_REPOSITORY" --draft --target "$source" --title "Shanling Q2 $version" --notes-file draft-notes.txt
