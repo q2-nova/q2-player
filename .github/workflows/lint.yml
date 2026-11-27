@@ -10,6 +10,7 @@ on:
       - 'rust-toolchain.toml'
       - 'crates/**'
       - 'tests/rt/**'
+      - 'tests/clippy-bad/**'
 
 permissions:
   contents: read
@@ -42,3 +43,15 @@ jobs:
           # await_holding_lock, await_holding_refcell_ref and the clippy.toml
           # lists in rt and net can fail the job.
           cargo clippy --locked -p q2nd -- -A clippy::all -A clippy::pedantic -A clippy::nursery -A clippy::restriction
+      - name: Clippy negative control
+        run: |
+          # The same command over tests/clippy-bad, which commits one mistake
+          # per lint: each must be reported, or the step above enforces nothing.
+          if cargo clippy --locked --manifest-path tests/clippy-bad/Cargo.toml --target-dir target/clippy-bad \
+              -- -A clippy::all -A clippy::pedantic -A clippy::nursery -A clippy::restriction 2> clippy-bad.log; then
+            echo '::error::clippy passed tests/clippy-bad'
+            exit 1
+          fi
+          for lint in disallowed_methods disallowed_types await_holding_lock await_holding_refcell_ref; do
+            grep -q "index.html#$lint" clippy-bad.log || { cat clippy-bad.log; echo "::error::clippy did not report $lint"; exit 1; }
+          done

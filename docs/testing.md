@@ -9,7 +9,8 @@ request and on `main`. It has two jobs:
 | `python` | `python3 tools/run-tests.py` | Every `test_*.py` under `tests/` and `tools/`. |
 
 The [lint workflow](../.github/workflows/lint.yml) runs the clippy and
-64-bit atomic checks of the [runtime rules](architecture.md#runtime-rules).
+64-bit atomic checks of the [runtime rules](architecture.md#runtime-rules)
+and the clippy negative control.
 
 ## Host tests
 
@@ -45,3 +46,12 @@ checks the profile format against q2-os when `Q2_OS_REPO` is set (the
 are comparison scripts, not unit tests: the first needs a baseline copy of
 `player.rs` and `alsa.rs`, the second an installed root and a target build.
 The runner does not run them.
+
+## Clippy negative control
+
+[`tests/clippy-bad`](../tests/clippy-bad/src/lib.rs) is a crate outside the
+workspace with one mistake per lint the lint workflow enforces:
+`disallowed_methods`, `disallowed_types`, `await_holding_lock` and
+`await_holding_refcell_ref`. The lint workflow runs the same clippy command
+on it and fails unless clippy reports all four. It fails when clippy stops
+reading the repository's `clippy.toml` or a flag allows a denied lint.
