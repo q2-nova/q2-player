@@ -5,7 +5,6 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 
@@ -128,7 +127,6 @@ def main():
         result = dict(update_tar_sha256=package_sha, version=record['version'],
                       starting_version=evidence['starting_version'],
                       hardware_qualification_sha256=record['files']['hardware-qualification.json'])
-        shutil.copyfile(bundle / 'hardware-qualification.json', stock / 'hardware-qualification.json')
     result['mode'] = args.mode
     result['player_commit'] = source
     result['components'] = pins

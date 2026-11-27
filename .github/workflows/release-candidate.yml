@@ -98,7 +98,6 @@ jobs:
           path: |
             build/release-candidate/result.json
             build/release-candidate/verified/update.tar
-            build/release-candidate/verified/hardware-qualification.json
       - name: Retain emulator rehearsal result
         if: inputs.mode == 'qemu-rehearsal'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -126,23 +125,22 @@ jobs:
           cd candidate
           [[ "$RESULT_SHA256" =~ ^[0-9a-f]{64}$ ]]
           printf '%s  result.json\n' "$RESULT_SHA256" | sha256sum --check --strict
-          read -r version package_sha hardware_sha source < <(python3 -c '
+          read -r version package_sha source < <(python3 -c '
           import json, re
           with open("result.json") as fh:
               result = json.load(fh)
           assert result["mode"] == "stock-draft"
           fields = [("version", r"V[A-Za-z0-9.]{4}"), ("update_tar_sha256", r"[a-f0-9]{64}"),
-                    ("hardware_qualification_sha256", r"[a-f0-9]{64}"), ("player_commit", r"[a-f0-9]{40}")]
+                    ("player_commit", r"[a-f0-9]{40}")]
           assert all(re.fullmatch(pattern, result[field]) for field, pattern in fields)
           print(*(result[field] for field, _ in fields))
           ')
           [[ "$source" == "$GITHUB_SHA" ]]
-          printf '%s  verified/update.tar\n%s  verified/hardware-qualification.json\n' \
-            "$package_sha" "$hardware_sha" | sha256sum --check --strict
+          printf '%s  verified/update.tar\n' "$package_sha" | sha256sum --check --strict
           if gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "A release or draft already exists for $version" >&2
             exit 1
           fi
           printf 'Stock Q2 candidate qualified on a physical device.\n\nPackage SHA-256: %s\n' "$package_sha" > draft-notes.txt
-          gh release create "$version" verified/update.tar result.json verified/hardware-qualification.json \
+          gh release create "$version" verified/update.tar result.json \
             --repo "$GITHUB_REPOSITORY" --draft --target "$source" --title "Shanling Q2 $version" --notes-file draft-notes.txt

@@ -39,7 +39,8 @@ Dispatch `stock-draft` with that producer run ID and the SHA-256 of
 `release-inputs.json`. The workflow reads the locked OS package format, checks
 the image provenance and keyless contents, recreates and reads back the
 stock package, and requires its SHA-256 to match the actual stock test.
-The draft job rechecks the verified bytes before attaching them. An existing
+The draft job rechecks the verified bytes before attaching them. The summary
+includes the qualification digest. The operator’s report stays with the input artifact. An existing
 release or draft at the version is left in place. Publication takes a separate
 maintainer action. A private OS repository requires a scoped read token stored
 in `Q2_OS_READ_TOKEN`. Public OS sources can be read using the workflow token.
