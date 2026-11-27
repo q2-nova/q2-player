@@ -97,7 +97,9 @@ class StockDraftTest(unittest.TestCase):
         self.assertIn('draft=true', api.call_args_list[1].args)
         self.assertTrue(any('Candidate firmware: V0.02. Provisional starting firmware: V1.32.' in arg
                             for arg in api.call_args_list[1].args))
-        self.assertIn('make_latest=false', api.call_args_list[1].args)
+        self.assertIn(f'tag_name={TAG}', api.call_args_list[1].args)
+        self.assertFalse(any(arg.startswith(('target_commitish=', 'make_latest='))
+                             for arg in api.call_args_list[1].args))
         self.assertEqual(
             [call.args[0] for call in api.call_args_list[2:-1]],
             [f'https://uploads.github.com/{endpoint}/131/assets?name={name}'
