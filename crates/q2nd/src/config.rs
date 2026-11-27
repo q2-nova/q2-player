@@ -774,6 +774,7 @@ impl Paths {
         let Some(internal) = &self.internal else {
             let config = Config::load(blocking, &self.config_path);
             if !self.config_path.exists() { let _ = config.save(blocking, &self.config_path); }
+            log_saved_accounts(&config);
             return config;
         };
         let stored = read_file(blocking, internal).ok()
@@ -789,6 +790,7 @@ impl Paths {
         if config.refresh_snapshot(blocking, internal).is_err() { log::warn!("Could not save the internal settings"); }
         crate::record_profile_stage("profile-config-snapshot-returned");
         *self.config_revision.lock().unwrap() = revision;
+        log_saved_accounts(&config);
         config
     }
 
@@ -934,6 +936,16 @@ fn config_fingerprint(bytes: &[u8]) -> [u8; 16] {
 
 fn fingerprint_text(fingerprint: &[u8; 16]) -> String {
     fingerprint.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Presence only: whether Wi-Fi sign-in can use an account from the card.
+fn log_saved_accounts(config: &Config) {
+    let delta = match &config.portal.delta {
+        Some(account) if account.sign_in().is_some() => "saved",
+        Some(_) => "incomplete",
+        None => "absent",
+    };
+    log::info!("Wi-Fi sign-in: Delta account {delta}");
 }
 
 fn read_file(_blocking: &crate::rt::Blocking, path: &Path) -> std::io::Result<Vec<u8>> {
