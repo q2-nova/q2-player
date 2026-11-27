@@ -468,6 +468,7 @@ def trace_receipt(card, case_file):
 
 
 def main():
+    import common  # host side only; the sandboxed half runs without it
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--binary', type=Path, required=True, help='q2-portal build output')
     p.add_argument('--player-test', type=Path, required=True,
@@ -506,7 +507,7 @@ def main():
                'player_supervisor_source': ROOT / 'crates/q2nd/src/ui/portal.rs'}
     cmd = ['bwrap', '--unshare-user', '--uid', '0', '--gid', '0', '--unshare-net', '--unshare-pid',
            '--die-with-parent', '--cap-add', 'CAP_NET_ADMIN', '--cap-add', 'CAP_NET_RAW',
-           '--cap-add', 'CAP_NET_BIND_SERVICE', '--ro-bind', '/usr', '/usr', '--symlink', 'usr/bin', '/bin',
+           '--cap-add', 'CAP_NET_BIND_SERVICE', *common.usr(), '--symlink', 'usr/bin', '/bin',
            '--symlink', 'usr/lib', '/lib', '--symlink', 'usr/lib64', '/lib64', '--proc', '/proc',
            '--dev', '/dev', '--tmpfs', '/tmp', '--dir', '/etc', '--ro-bind', str(hosts), '/etc/hosts',
            '--ro-bind', str(wpa), '/usr/sbin/wpa_cli', '--dir', '/fixture',

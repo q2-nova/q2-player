@@ -346,6 +346,7 @@ def isolated_venue(ordinary, private_dns, verify_trace):
 
 
 def launch(args):
+    import common  # host side only; the sandboxed half runs without it
     args.out.mkdir()
     sources = {"helper": args.helper, "certificate": args.certificate, "venue": Path(__file__).resolve()}
     if args.build_inputs:
@@ -376,7 +377,7 @@ def launch(args):
     argv = [
         "bwrap", "--unshare-user", "--uid", "0", "--gid", "0", "--unshare-net", "--unshare-pid",
         "--die-with-parent", "--cap-add", "CAP_NET_ADMIN", "--cap-add", "CAP_NET_BIND_SERVICE",
-        "--ro-bind", "/usr", "/usr", "--symlink", "usr/bin", "/bin", "--symlink", "usr/lib", "/lib",
+        *common.usr(), "--symlink", "usr/bin", "/bin", "--symlink", "usr/lib", "/lib",
         "--symlink", "usr/lib64", "/lib64", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
         "--tmpfs", "/run", "--dir", "/etc", "--dir", "/fixture", "--clearenv",
         "--setenv", "PATH", "/usr/bin:/usr/sbin",

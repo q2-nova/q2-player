@@ -120,13 +120,31 @@ def player_binaries(target_dir, log):
     return {'player_test': Path(tests[0]), 'player': target_dir / 'debug/q2nd'}
 
 
+def usr():
+    """/usr as on the host, except that /usr/sbin is a tmpfs of links to the host's
+    entries. Fixtures such as wpa_cli can then be bound at /usr/sbin paths the
+    host does not have, without writing to the host's /usr."""
+    argv = ['--tmpfs', '/usr']
+    for entry in sorted(Path('/usr').iterdir()):
+        if entry.name != 'sbin':
+            argv += ['--ro-bind', str(entry), str(entry)] if not entry.is_symlink() \
+                else ['--symlink', str(entry.readlink()), str(entry)]
+    argv += ['--dir', '/usr/sbin']
+    sbin = Path('/usr/sbin')
+    if not sbin.is_symlink() and sbin.is_dir():
+        argv += ['--ro-bind', str(sbin), '/.host-sbin']
+        for entry in sorted(sbin.iterdir()):
+            argv += ['--symlink', f'/.host-sbin/{entry.name}', str(entry)]
+    return argv
+
+
 def sandbox(*, caps=('CAP_NET_ADMIN', 'CAP_NET_RAW', 'CAP_NET_BIND_SERVICE')):
     """A bubblewrap root with a private network, PID space, /tmp and /run."""
     argv = ['bwrap', '--unshare-user', '--uid', '0', '--gid', '0', '--unshare-net', '--unshare-pid',
             '--die-with-parent']
     for cap in caps:
         argv += ['--cap-add', cap]
-    argv += ['--ro-bind', '/usr', '/usr', '--symlink', 'usr/bin', '/bin', '--symlink', 'usr/lib', '/lib',
+    argv += [*usr(), '--symlink', 'usr/bin', '/bin', '--symlink', 'usr/lib', '/lib',
              '--symlink', 'usr/lib64', '/lib64', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
              '--tmpfs', '/run', '--dir', '/etc', '--dir', '/fixture']
     # Debian and Ubuntu resolve /usr/bin/ld through /etc/alternatives; the
