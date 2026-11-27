@@ -407,6 +407,17 @@ def wheel():
     print('Q2_GENERATED_WHEEL_APP_PASS', flush=True)
 
 
+def show_radio(mock, run):
+    """The stand-in radio's requests and the watcher's state after a failed setup."""
+    for path in [mock / 'radio-events', mock / 'station', *sorted(run.glob('*'))] if run.is_dir() else \
+            [mock / 'radio-events', mock / 'station']:
+        if path.is_file():
+            print(f'-- {path}:', path.read_text(errors='replace')[-2000:], sep='\n', flush=True)
+        elif path.exists():
+            print(f'-- {path}: {sorted(p.name for p in path.iterdir()) if path.is_dir() else "special"}', flush=True)
+    print(f'-- {run} exists: {run.exists()}', flush=True)
+
+
 def phone():
     sys.path.insert(0, '/fixture/os')
     import test_portal_phone as radio  # q2-os: stand-in radio tools around the real AP watcher
@@ -430,9 +441,13 @@ def phone():
                     with subprocess.Popen(['/fixture/player-test', '--ignored', '--exact', APP_TEST, '--nocapture'],
                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as app:
                         try:
-                            until(lambda: (LIFECYCLE / 'scan-ready').is_file() or app.poll() is not None, 20)
-                            if app.poll() is not None:
-                                print(*app.communicate(timeout=3), sep='\n', flush=True)
+                            try:
+                                until(lambda: (LIFECYCLE / 'scan-ready').is_file() or app.poll() is not None, 20)
+                            except AssertionError:
+                                app.kill()
+                            if app.poll() is not None or not (LIFECYCLE / 'scan-ready').is_file():
+                                print(*app.communicate(timeout=6), sep='\n', flush=True)
+                                show_radio(mock, radio.RUN)
                             assert (LIFECYCLE / 'scan-ready').is_file(), 'App test ended before the QR rendezvous'
                             page = LIFECYCLE / 'qr-page'
                             assert page.stat().st_mode & 0o777 == 0o600

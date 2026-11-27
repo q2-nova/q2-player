@@ -15,6 +15,9 @@ wheel-supervisor   The player supervisor's cancel, challenge and success paths a
                    helper's video handling (ui::portal generated_wheel_login_supervisor_fixture).
 app-wheel          The App's Wi-Fi screen, a generated lease, wheel entry and an
                    uncached stream before and after admission (generated_delta_wheel_app_journey).
+phone-ap           q2-os's own phone test: the real access-point watcher with stand-in
+                   radio tools, a phone peer namespace and the helper's pairing page
+                   (submit, cancel and station change). Needs a q2-os checkout.
 app-phone          The same App journey with both QR screens, a phone peer on the
                    temporary access point, a transient failure, Retry and the prepared
                    account. Needs a q2-os checkout for the access-point watcher.
@@ -33,7 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common  # noqa: E402
 
 JOURNEYS = ('guest-boingo', 'guest-long-terms', 'delta-ordinary', 'delta-video',
-            'wheel-supervisor', 'app-wheel', 'app-phone')
+            'wheel-supervisor', 'app-wheel', 'phone-ap', 'app-phone')
+NEEDS_OS = ('phone-ap', 'app-phone')
 GENERATED_WIFI = f'''#!/bin/sh
 # Generated Wi-Fi helper: `up` associates, `dhcp` and `renew` lease {common.IP}.
 set -eu
@@ -65,6 +69,20 @@ def delta(name, out, inputs):
                          *extra, '--out', out]).returncode
     result = json.loads((out / 'result.json').read_text())
     return rc == 0 and result['passed'], {'cases': [case['case'] for case in result['iterations']]}
+
+
+def phone_ap(name, out, inputs):
+    out.mkdir(parents=True)
+    with (out / 'run.log').open('x') as log:
+        try:
+            rc = subprocess.run([sys.executable, inputs['os_repo'] / 'os/test_portal_phone.py',
+                                 '--binary', inputs['production']], stdout=log, stderr=subprocess.STDOUT,
+                                timeout=90).returncode
+        except subprocess.TimeoutExpired:
+            log.write('phone access-point test timed out\n')
+            rc = 124
+    cases = [line.split(':')[0] for line in (out / 'run.log').read_text().splitlines() if line.endswith(': passed')]
+    return rc == 0 and cases == ['submit', 'cancel', 'station-change'], {'cases': cases}
 
 
 def venue(name, out, inputs):
@@ -132,9 +150,9 @@ def main():
     if not out.is_relative_to(common.ROOT / 'build'):
         parser.error('--out belongs under build/')
     out.mkdir(parents=True, exist_ok=False)
-    selected = args.only or [name for name in JOURNEYS if name != 'app-phone' or args.os_repo]
-    if 'app-phone' in selected and not args.os_repo:
-        parser.error('app-phone needs --os-repo')
+    selected = args.only or [name for name in JOURNEYS if name not in NEEDS_OS or args.os_repo]
+    if set(selected) & set(NEEDS_OS) and not args.os_repo:
+        parser.error('phone-ap and app-phone need --os-repo')
 
     started = time.monotonic()
     with (out / 'build.log').open('wb') as log:
@@ -148,7 +166,8 @@ def main():
     for name in selected:
         print(f'== {name}', flush=True)
         begun = time.monotonic()
-        runner = guest if name.startswith('guest') else delta if name.startswith('delta') else venue
+        runner = (guest if name.startswith('guest') else delta if name.startswith('delta')
+                  else phone_ap if name == 'phone-ap' else venue)
         try:
             passed, detail = runner(name, out / name, inputs)
         except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
