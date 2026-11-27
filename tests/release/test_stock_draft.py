@@ -27,6 +27,8 @@ class StockDraftTest(unittest.TestCase):
         self.read_archive = mock.patch.object(DRAFT, 'read_archive', return_value={'version': TRIAL[0]}).start()
         self.addCleanup(mock.patch.stopall)
         (self.directory / 'player-source.tar.gz').write_bytes(b'generated source')
+        (self.directory / 'q2nd-symbols.tar.gz').write_bytes(b'generated symbols')
+        self.symbols = mock.patch.object(DRAFT, 'symbols').start()
         self.report = {
             'player_tag': TAG, 'player_commit': COMMIT, 'version': TRIAL[0], 'starting_version': TRIAL[1],
             'profile': 'stock-qualification-candidate', 'installed_root_ready': True,
@@ -50,6 +52,13 @@ class StockDraftTest(unittest.TestCase):
         with mock.patch.object(DRAFT, 'api') as api, self.assertRaisesRegex(ValueError, 'SHA256SUMS'):
             self.stage()
         api.assert_not_called()
+
+    def test_checks_symbols_of_the_release_build(self):
+        self.symbols.side_effect = ValueError('emulator diagnostic build')
+        with mock.patch.object(DRAFT, 'api') as api, self.assertRaisesRegex(ValueError, 'diagnostic'):
+            self.stage()
+        api.assert_not_called()
+        self.symbols.assert_called_once_with(self.directory / 'q2nd-symbols.tar.gz')
 
     def test_rejects_claim_of_physical_qualification(self):
         self.report['hardware_qualified'] = True

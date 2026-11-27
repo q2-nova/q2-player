@@ -194,7 +194,8 @@ def main():
             archive = 'q2-stock-qualified-inputs.tar.gz'
             verify_sums(args.stock_assets, (archive,), archive + '.sha256')
             unpack(args.stock_assets / archive, args.out,
-                   {'image', 'hardware-qualification.json', 'update.tar', 'release-inputs.json'})
+                   {'image', 'hardware-qualification.json', 'update.tar', 'release-inputs.json',
+                    'q2nd-symbols.tar.gz'})
     except (OSError, KeyError, ValueError, subprocess.CalledProcessError) as error:
         parser.exit(1, f'{error}\n')
 

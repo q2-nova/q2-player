@@ -12,6 +12,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 IMAGE_FILES = ('artifact.json', 'xImage', 'rootfs.squashfs', 'rescue.cpio', 'shanling-q2.dtb')
 VERIFIER = ROOT / 'tools/verify-package.py'
+SYMBOLS = 'q2nd-symbols.tar.gz'
 
 
 def sha(path):
@@ -47,7 +48,8 @@ def admit(root, expected_sha, mode, source, pins):
         raise ValueError('invalid or identical stock firmware versions')
     files = record.get('files', {})
     needed = {'image/' + name for name in IMAGE_FILES}
-    needed |= {'hardware-qualification.json', 'update.tar'} if mode == 'stock-draft' else {'qemu-system-mipsel'}
+    needed |= ({'hardware-qualification.json', 'update.tar', SYMBOLS} if mode == 'stock-draft'
+               else {'qemu-system-mipsel'})
     if set(files) != needed:
         raise ValueError('release input manifest has missing or unexpected files')
     for name in needed:
@@ -153,9 +155,15 @@ def main():
         shutil.copyfile(package, staged)
         if sha(staged) != package_sha:
             raise ValueError('staged stock package differs from the actual hardware test')
+        symbols = regular(bundle, SYMBOLS)
+        runpy.run_path(str(ROOT / 'tools/release-symbols.py'))['check'](symbols, manifest['app_sha256'])
+        shutil.copyfile(symbols, stock / SYMBOLS)
+        if sha(stock / SYMBOLS) != record['files'][SYMBOLS]:
+            raise ValueError('staged symbols differ from the release inputs')
         result = dict(update_tar_sha256=package_sha, version=record['version'],
                       starting_version=evidence['starting_version'],
-                      hardware_qualification_sha256=record['files']['hardware-qualification.json'])
+                      hardware_qualification_sha256=record['files']['hardware-qualification.json'],
+                      symbols_sha256=record['files'][SYMBOLS])
     result['mode'] = args.mode
     result['player_commit'] = source
     result['components'] = pins

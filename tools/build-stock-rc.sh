@@ -39,4 +39,6 @@ jq -s --arg version "$version" --arg starting "$starting_version" \
 python3 tools/release-source.py --package "$release/update.tar" \
   --record "$release/result.json" --producer-inputs "$inputs/producer-inputs.json" \
   --out "$release/player-source.tar.gz"
-(cd "$release" && sha256sum update.tar result.json player-source.tar.gz > SHA256SUMS)
+python3 tools/release-symbols.py pack --build build/paired-player \
+  --out "$release/q2nd-symbols.tar.gz" > /dev/null
+(cd "$release" && sha256sum update.tar result.json player-source.tar.gz q2nd-symbols.tar.gz > SHA256SUMS)

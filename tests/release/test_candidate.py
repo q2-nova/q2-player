@@ -29,8 +29,10 @@ class Candidate(unittest.TestCase):
         self.qualification.write_text(json.dumps(self.evidence))
         fixture_package = self.bundle / 'update.tar'
         fixture_package.write_text('synthetic archive marker')
+        symbols = self.bundle / API['SYMBOLS']
+        symbols.write_text('generated symbols marker')
         files = {self.qualification.name: API['sha'](self.qualification),
-                 fixture_package.name: API['sha'](fixture_package)}
+                 fixture_package.name: API['sha'](fixture_package), symbols.name: API['sha'](symbols)}
         for name in API['IMAGE_FILES']:
             path = self.bundle / 'image' / name
             path.write_text('generated fixture marker')
@@ -57,6 +59,13 @@ class Candidate(unittest.TestCase):
     def test_tampered_input_rejected(self):
         (self.bundle / 'image/rootfs.squashfs').write_text('changed bytes')
         with self.assertRaisesRegex(ValueError, 'rootfs.squashfs'):
+            self.admit()
+
+    def test_stock_bundle_requires_symbols(self):
+        del self.record['files'][API['SYMBOLS']]
+        self.manifest.write_text(json.dumps(self.record))
+        self.manifest_sha = API['sha'](self.manifest)
+        with self.assertRaisesRegex(ValueError, 'missing or unexpected'):
             self.admit()
 
     def test_input_symlink_rejected(self):

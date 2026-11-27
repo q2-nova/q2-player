@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 TAG = r'stock-v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*'
-PAYLOADS = ('update.tar', 'result.json', 'player-source.tar.gz')
+PAYLOADS = ('update.tar', 'result.json', 'player-source.tar.gz', 'q2nd-symbols.tar.gz')
 
 
 def digest(path):
@@ -56,6 +56,13 @@ def admit(directory, tag, commit, trial, os_repo):
         raise ValueError('stock draft requires the matching booted, unqualified archive')
     if read_archive(os_repo, directory / 'update.tar', package_sha)['version'] != version:
         raise ValueError('stock trial version differs from the archived updater manifest')
+    symbols(directory / 'q2nd-symbols.tar.gz')
+
+
+def symbols(archive):
+    """The release build's symbol companions; refuses an emulator diagnostic build."""
+    import runpy
+    runpy.run_path(str(Path(__file__).with_name('release-symbols.py')))['check'](archive, None)
 
 
 def api(endpoint, *args):

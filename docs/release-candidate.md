@@ -12,7 +12,8 @@ candidate**. It builds the paired player and portal, composes a keyless
 installed OS fixture with the tagged OS builder and prebuilt kernel, packs the firmware archive and
 reads it back before booting those exact bytes under QEMU. The paired artifact
 remains in Actions for reuse. The prerelease contains
-`update.tar` labelled QEMU emulator rehearsal only, its boot result, corresponding player source and their checksums. Keep this
+`update.tar` labelled QEMU emulator rehearsal only, its boot result, corresponding player source,
+`q2nd-symbols.tar.gz` and their checksums. Keep this
 emulator rehearsal off physical devices. Manual dispatch runs the generated
 admission controls without producing release assets.
 
@@ -31,7 +32,8 @@ the exact tested player commit. It supplies
 qualification tag.
 
 The tar archive contains the hardware-tested `update.tar`,
-`hardware-qualification.json`, `release-inputs.json`, and `image/` with
+`hardware-qualification.json`, `release-inputs.json`, `q2nd-symbols.tar.gz`
+from the stock qualification draft, and `image/` with
 `artifact.json`, `xImage`, `rootfs.squashfs`, `rescue.cpio`, and
 `shanling-q2.dtb`. The input manifest records schema `1`, mode `stock-draft`,
 `player_commit`, its complete source lock as `components`, `version`,
@@ -46,10 +48,18 @@ Keep credentials, identifiers and private logs out of this report.
 
 The workflow checks the candidate’s source locks and packaged filesystem,
 validates the stock update format and keyless contents, and verifies that the
-stock qualification covers the identical archive. It copies those bytes into a
+stock qualification covers the identical archive and that the symbols belong
+to the q2nd in `image/artifact.json`. It copies those bytes into a
 draft only after the checks pass. The stock draft retains the package and its
 verification summary. An existing tag or release at that version is left in
 place. Publication is a separate maintainer action.
+
+Release workflows attach `q2nd-symbols.tar.gz` and include it in
+`SHA256SUMS`. It holds the unstripped and debug companions of q2nd and
+q2-portal from `symbols/` and the paired build's `result.json` as
+`build-result.json`. It is a separate asset; `update.tar` does not contain
+it. `tools/release-symbols.py` packs it only from a release build with no
+stall sampler and checks each companion against its symbols receipt.
 
 Both release workflows attach `player-source.tar.gz` and include it in
 `SHA256SUMS`. The source bundle records the exact firmware digest and player
@@ -104,6 +114,7 @@ portal. The provisional physical trial versions live in
 `stock-release.json`. The selected candidate is `V0.02`, with factory
 `V1.32` as the intended starting version. The trial is pending.
 The workflow attaches `update.tar`, its boot and package evidence, corresponding
-player source, and `SHA256SUMS` directly to a newly created GitHub draft.
+player source, `q2nd-symbols.tar.gz` and `SHA256SUMS` directly to a newly
+created GitHub draft.
 Keep that draft private during physical qualification. The workflow refuses
 to reuse an existing draft, including after an interrupted upload.

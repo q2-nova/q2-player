@@ -6,6 +6,7 @@ on:
       - '.github/workflows/release-candidate.yml'
       - 'tools/release-candidate.py'
       - 'tools/release-source.py'
+      - 'tools/release-symbols.py'
       - 'tools/verify-package.py'
       - 'tests/release/**'
   workflow_dispatch:
@@ -94,6 +95,7 @@ jobs:
             build/release-candidate/result.json
             build/release-candidate/verified/update.tar
             build/release-candidate/verified/player-source.tar.gz
+            build/release-candidate/verified/q2nd-symbols.tar.gz
 
   draft:
     concurrency: q2-stock-draft
@@ -116,13 +118,13 @@ jobs:
           cd candidate
           [[ "$RESULT_SHA256" =~ ^[0-9a-f]{64}$ ]]
           printf '%s  result.json\n' "$RESULT_SHA256" | sha256sum --check --strict
-          read -r version package_sha source < <(python3 -c '
+          read -r version package_sha source symbols_sha < <(python3 -c '
           import json, re
           with open("result.json") as fh:
               result = json.load(fh)
           assert result["mode"] == "stock-draft"
           fields = [("version", r"V[A-Za-z0-9.]{4}"), ("update_tar_sha256", r"[a-f0-9]{64}"),
-                    ("player_commit", r"[a-f0-9]{40}")]
+                    ("player_commit", r"[a-f0-9]{40}"), ("symbols_sha256", r"[a-f0-9]{64}")]
           assert all(re.fullmatch(pattern, result[field]) for field, pattern in fields)
           print(*(result[field] for field, _ in fields))
           ')
@@ -130,8 +132,9 @@ jobs:
           printf '%s  verified/update.tar\n' "$package_sha" | sha256sum --check --strict
           [[ "$SOURCE_SHA256" =~ ^[a-f0-9]{64}$ ]]
           printf '%s  verified/player-source.tar.gz\n' "$SOURCE_SHA256" | sha256sum --check --strict
-          printf '%s  update.tar\n%s  result.json\n%s  player-source.tar.gz\n' \
-            "$package_sha" "$RESULT_SHA256" "$SOURCE_SHA256" > SHA256SUMS
+          printf '%s  verified/q2nd-symbols.tar.gz\n' "$symbols_sha" | sha256sum --check --strict
+          printf '%s  update.tar\n%s  result.json\n%s  player-source.tar.gz\n%s  q2nd-symbols.tar.gz\n' \
+            "$package_sha" "$RESULT_SHA256" "$SOURCE_SHA256" "$symbols_sha" > SHA256SUMS
           if gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "A release or draft already exists for $version" >&2
             exit 1
@@ -140,6 +143,7 @@ jobs:
             echo "A Git tag already exists for $version" >&2
             exit 1
           fi
-          printf 'Stock Q2 candidate qualified on a physical device.\n\nPackage SHA-256: %s\n\nSee player-source.tar.gz for the LGPL libopenaptx notices, source and relink procedure.\n' "$package_sha" > draft-notes.txt
-          gh release create "$version" verified/update.tar result.json verified/player-source.tar.gz SHA256SUMS \
+          printf 'Stock Q2 candidate qualified on a physical device.\n\nPackage SHA-256: %s\n\nSee player-source.tar.gz for the LGPL libopenaptx notices, source and relink procedure. q2nd-symbols.tar.gz holds the unstripped and debug files for the executables in update.tar.\n' "$package_sha" > draft-notes.txt
+          gh release create "$version" verified/update.tar result.json verified/player-source.tar.gz \
+            verified/q2nd-symbols.tar.gz SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --draft --target "$source" --title "Shanling Q2 $version" --notes-file draft-notes.txt
