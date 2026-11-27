@@ -138,6 +138,11 @@ def boot(args, fmt):
         command = ['podman', 'run', '--rm', '--cidfile', str(work/'qemu.cid'), '--network=none',
                    '--security-opt', 'label=disable', '-v', f'{binary}:/q2/system:ro',
                    '-v', f'{work}:/fixture', '-w', '/fixture', 'q2-qemu-build', '/q2/system']
+    data = getattr(args, 'qemu_data', None)
+    if data is not None:
+        if not args.native_qemu or not data.is_dir():
+            raise ValueError('native QEMU data must name an existing directory')
+        command += ['-L', data.resolve()]
     cmd = [*command, '-M','q2', '-m','128M','-smp','2','-display','none','-monitor','none',
            '-nic','none','-serial','stdio','-kernel','xImage','-drive','if=mtd,format=raw,file=nand.img']
     with console.open('xb') as output:
@@ -182,12 +187,14 @@ def main():
     emulator.add_argument('--qemu', type=Path, required=True)
     emulator.add_argument('--native-qemu', action='store_true',
                           help='use a QEMU binary built for this host instead of its build container')
+    emulator.add_argument('--qemu-data', type=Path, help='optional native QEMU firmware/data directory')
     emulator.add_argument('--timeout', type=int, default=420)
     for command in (package, emulator):
         command.add_argument('--out', type=Path, required=True, help='fresh directory')
+        command.add_argument('--component-lock', type=Path, default=PINS)
         command.add_argument('--os-repo', type=lambda x: Path(x).resolve(), required=True)
     args = parser.parse_args()
-    pins = json.loads(PINS.read_text())
+    pins = json.loads(args.component_lock.read_text())
     fmt = os_package(args.os_repo, pins)
     if args.operation == 'pack':
         pack(args, pins, fmt)

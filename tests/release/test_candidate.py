@@ -27,7 +27,10 @@ class Candidate(unittest.TestCase):
                          'generated_local_playback_passed': True, 'recovery_passed': True,
                          'conditions': 'synthetic example', 'procedure': 'synthetic example'}
         self.qualification.write_text(json.dumps(self.evidence))
-        files = {self.qualification.name: API['sha'](self.qualification)}
+        fixture_package = self.bundle / 'update.tar'
+        fixture_package.write_text('synthetic archive marker')
+        files = {self.qualification.name: API['sha'](self.qualification),
+                 fixture_package.name: API['sha'](fixture_package)}
         for name in API['IMAGE_FILES']:
             path = self.bundle / 'image' / name
             path.write_text('generated fixture marker')

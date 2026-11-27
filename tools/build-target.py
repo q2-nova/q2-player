@@ -42,6 +42,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for flag in ('sdk', 'toolchain-repo', 'compiler-work', 'os-repo', 'out'):
         parser.add_argument('--' + flag, type=Path, required=True)
+    parser.add_argument('--component-lock', type=Path, default=ROOT / 'component-lock.json')
+    parser.add_argument('--producer-inputs', type=Path, help='admitted CI producer identities')
     parser.add_argument('--unwinder', type=Path, help='optional target libunwind prefix')
     parser.add_argument('--profile-use', type=Path, help='optional q2nd PGO profile for these inputs')
     args = parser.parse_args()
@@ -69,7 +71,7 @@ def main():
     if args.unwinder and not all((args.unwinder / file).is_file()
                                  for file in ('include/libunwind.h', 'lib/libunwind.a')):
         parser.error('--unwinder must provide include/libunwind.h and lib/libunwind.a')
-    components = json.loads((ROOT / 'component-lock.json').read_text())
+    components = json.loads(args.component_lock.read_text())
     component_commits = {}
     try:
         source_commit = clean_revision(ROOT)
@@ -138,6 +140,11 @@ def main():
         run(*base, '-p', name, *options, env=dict(env, CARGO_ENCODED_RUSTFLAGS='\x1f'.join(flags)))
 
     artifacts = {}
+    if args.producer_inputs is not None:
+        producer_record = args.producer_inputs.read_bytes()
+        json.loads(producer_record)
+        (out / 'producer-inputs.json').write_bytes(producer_record)
+        identities['producer_inputs'] = sha(out / 'producer-inputs.json')
     for name in PACKAGES:
         image = out / name
         symbols = out / 'symbols'

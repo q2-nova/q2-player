@@ -9,22 +9,8 @@ on:
       - 'tests/release/**'
   workflow_dispatch:
     inputs:
-      mode:
-        description: Operation
-        type: choice
-        options:
-          - controls
-          - qemu-rehearsal
-          - stock-draft
-        default: controls
-      player_commit:
-        description: Exact tested player commit on main (defaults to the dispatch commit)
-        type: string
-      producer_run:
-        description: Successful player Actions run with the input bundle
-        type: string
-      manifest_sha256:
-        description: SHA-256 of release-inputs.json from the producer
+      candidate_tag:
+        description: Named stock qualification prerelease containing the exact tested package
         type: string
 
 permissions:
@@ -41,7 +27,7 @@ jobs:
       - run: python3 -m unittest discover -s tests/release -p 'test_*.py' -v
 
   compose:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode != 'controls'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.candidate_tag != ''
     needs: controls
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -50,59 +36,51 @@ jobs:
       contents: read
     outputs:
       result_sha256: ${{ steps.compose.outputs.result_sha256 }}
+      player_commit: ${{ steps.pin.outputs.player_commit }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Read locked OS revision
+      - name: Resolve the candidate and its locked OS
         id: pin
         env:
-          PLAYER_SOURCE: ${{ inputs.player_commit || github.sha }}
+          GH_TOKEN: ${{ secrets.Q2_COMPONENTS_READ_TOKEN || github.token }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
         run: |
-          [[ "$PLAYER_SOURCE" =~ ^[0-9a-f]{40}$ ]]
-          git merge-base --is-ancestor "$PLAYER_SOURCE" "$GITHUB_SHA"
-          git show "$PLAYER_SOURCE:component-lock.json" |
+          [[ "$CANDIDATE_TAG" =~ ^stock-inputs-v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]]
+          source=$(gh api "repos/$GITHUB_REPOSITORY/commits/$CANDIDATE_TAG" \
+            --jq 'if .commit.verification.verified then .sha else empty end')
+          [[ "$source" =~ ^[a-f0-9]{40}$ ]]
+          git merge-base --is-ancestor "$source" "$GITHUB_SHA"
+          printf 'player_commit=%s\n' "$source" >> "$GITHUB_OUTPUT"
+          git show "$source:component-lock.json" |
             python3 -c 'import json,sys; print("os_commit=" + json.load(sys.stdin)["q2-os"])' >> "$GITHUB_OUTPUT"
+          gh release view "$CANDIDATE_TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease | grep -Fx true
+          gh release download "$CANDIDATE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern q2-stock-qualified-inputs.tar.gz --pattern q2-stock-qualified-inputs.tar.gz.sha256 \
+            --dir build/stock-release-assets
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: ${{ github.repository_owner }}/q2-os
           ref: ${{ steps.pin.outputs.os_commit }}
-          token: ${{ secrets.Q2_OS_READ_TOKEN || github.token }}
+          token: ${{ secrets.Q2_COMPONENTS_READ_TOKEN || github.token }}
           path: build/release-os
           persist-credentials: false
-      - name: Download exact reusable inputs
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MODE: ${{ inputs.mode }}
-          PRODUCER_RUN: ${{ inputs.producer_run }}
-          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
-        run: |
-          [[ "$PRODUCER_RUN" =~ ^[1-9][0-9]*$ && "$MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
-          [[ "$(gh run view "$PRODUCER_RUN" --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" == success ]]
-          gh run download "$PRODUCER_RUN" --repo "$GITHUB_REPOSITORY" \
-            --name "q2-${MODE}-inputs" --dir build/release-inputs
-      - name: Install package tools
-        env:
-          MODE: ${{ inputs.mode }}
-        run: |
-          packages=(cpio squashfs-tools)
-          if [[ "$MODE" == qemu-rehearsal ]]; then packages+=(podman); fi
-          sudo apt-get update
-          sudo apt-get install -y "${packages[@]}"
-      - name: Pack and verify exact candidate
+      - name: Check the exact package tested on a physical Q2
         id: compose
         env:
-          MODE: ${{ inputs.mode }}
-          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
-          PLAYER_SOURCE: ${{ inputs.player_commit || github.sha }}
+          PLAYER_SOURCE: ${{ steps.pin.outputs.player_commit }}
         run: |
-          python3 tools/release-candidate.py --mode "$MODE" --bundle build/release-inputs \
-            --player-commit "$PLAYER_SOURCE" \
-            --manifest-sha256 "$MANIFEST_SHA256" --os-repo build/release-os --out build/release-candidate
-          printf 'result_sha256=%s\n' "$(sha256sum build/release-candidate/result.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          sudo apt-get update
+          sudo apt-get install -y cpio squashfs-tools
+          python3 tools/fetch-build-tools.py --stock-assets build/stock-release-assets --out build/release-inputs
+          manifest_sha=$(sha256sum build/release-inputs/release-inputs.json | cut -d ' ' -f1)
+          python3 tools/release-candidate.py --mode stock-draft --bundle build/release-inputs \
+            --player-commit "$PLAYER_SOURCE" --manifest-sha256 "$manifest_sha" \
+            --os-repo build/release-os --out build/release-candidate
+          printf 'result_sha256=%s\n' "$(sha256sum build/release-candidate/result.json | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
       - name: Transfer verified stock payload to the draft job
-        if: inputs.mode == 'stock-draft'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: q2-verified-stock-candidate
@@ -110,16 +88,8 @@ jobs:
           path: |
             build/release-candidate/result.json
             build/release-candidate/verified/update.tar
-      - name: Retain emulator rehearsal result
-        if: inputs.mode == 'qemu-rehearsal'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: q2-emulator-rehearsal-result
-          if-no-files-found: error
-          path: build/release-candidate/result.json
 
   draft:
-    if: inputs.mode == 'stock-draft'
     concurrency: q2-stock-draft
     needs: compose
     runs-on: ubuntu-24.04
@@ -132,7 +102,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RESULT_SHA256: ${{ needs.compose.outputs.result_sha256 }}
-          PLAYER_SOURCE: ${{ inputs.player_commit || github.sha }}
+          PLAYER_SOURCE: ${{ needs.compose.outputs.player_commit }}
         run: |
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --name q2-verified-stock-candidate --dir candidate

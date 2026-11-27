@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 
@@ -46,7 +47,7 @@ def admit(root, expected_sha, mode, source, pins):
         raise ValueError('invalid or identical stock firmware versions')
     files = record.get('files', {})
     needed = {'image/' + name for name in IMAGE_FILES}
-    needed |= {'hardware-qualification.json'} if mode == 'stock-draft' else {'qemu-system-mipsel'}
+    needed |= {'hardware-qualification.json', 'update.tar'} if mode == 'stock-draft' else {'qemu-system-mipsel'}
     if set(files) != needed:
         raise ValueError('release input manifest has missing or unexpected files')
     for name in needed:
@@ -144,10 +145,14 @@ def main():
     else:
         stock = args.out / 'verified'
         stock.mkdir()
-        package = stock / 'update.tar'
-        check_stock(verifier, fmt, image, manifest, record, pins, source, package)
-        package_sha = sha(package)
+        package = bundle / 'update.tar'
+        package_sha = record['files']['update.tar']
+        check_stock(verifier, fmt, image, manifest, record, pins, source, package, package_sha)
         evidence = stock_qualification(bundle / 'hardware-qualification.json', source, pins, record, package_sha)
+        staged = stock / 'update.tar'
+        shutil.copyfile(package, staged)
+        if sha(staged) != package_sha:
+            raise ValueError('staged stock package differs from the actual hardware test')
         result = dict(update_tar_sha256=package_sha, version=record['version'],
                       starting_version=evidence['starting_version'],
                       hardware_qualification_sha256=record['files']['hardware-qualification.json'])
@@ -160,7 +165,7 @@ def main():
         output.write('\n')
 
 
-def check_stock(verifier, fmt, image, m, record, pins, source, package):
+def check_stock(verifier, fmt, image, m, record, pins, source, package, package_sha):
     if (m.get('qemu_fixture') is not False or m.get('emulator_shell') is not False
             or m.get('diagnostic_ssh') != {'profile': 'disabled'}
             or m.get('integration_hook_present') is not True
@@ -183,9 +188,9 @@ def check_stock(verifier, fmt, image, m, record, pins, source, package):
                          ('usr/libexec/q2-network/tsrsd', m['tsrsd']['sha256'])]:
         if verifier['sha'](tool('unsquashfs', image, '-cat', 'rootfs.squashfs', name)) != digest:
             raise ValueError(f'stock executable differs from its installed OS manifest: {name}')
-    fmt.build_package(image / 'xImage', image / 'rootfs.squashfs', package, record['version'],
-                      record['installed_version'])
-    blobs, _ = fmt.read_package(package, sha(package))
+    blobs, report = fmt.read_package(package, package_sha)
+    if report['version'] != record['version']:
+        raise ValueError('tested stock package has a different version')
     for member, name in ((fmt.KERNEL, 'xImage'), (fmt.ROOTFS, 'rootfs.squashfs')):
         if verifier['sha'](blobs[member]) != m['artifacts'][name]['sha256']:
             raise ValueError(f'stock package readback differs: {name}')
