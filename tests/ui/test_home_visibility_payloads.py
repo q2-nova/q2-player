@@ -11,6 +11,10 @@ fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
 ROOT=Path(__file__).resolve().parents[2]
 
 class PayloadNamespace(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        (ROOT / "build/perf").mkdir(parents=True, exist_ok=True)
+
     def test_generated_payloads_and_indexed_media_are_coherent(self):
         with tempfile.TemporaryDirectory(dir=ROOT / "build/perf") as directory:
             out=Path(directory) / "generated"
