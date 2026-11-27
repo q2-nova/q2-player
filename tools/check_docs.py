@@ -4,7 +4,9 @@
 Every relative link in a Markdown file outside crates/vendor must reach a
 tracked file, and an anchor must name a heading in the target. Links listed
 in tools/doc-links-pending.txt point at documents that are not ported yet;
-they are allowed until the target exists.
+they are allowed until the target exists. A plain docs/NAME.md path in any
+tracked file must name a file of this repository, unless another repository's
+name comes just before it.
 
 docs/specification.md must define each requirement ID once, in a table row
 with a requirement and an acceptance, and must carry no dates, release
@@ -30,6 +32,8 @@ PEOPLE = re.compile(r"(?i)\b(device owner|the owner|owner's|requested by|product
 ID = re.compile(r'\b([A-Z][A-Z]*(?:-[A-Z]+)*)-(\d{3})\b')
 ROW_ID = re.compile(r'[A-Z][A-Z]*(?:-[A-Z]+)*-\d{3}')
 CITING = ('crates/', 'docs/', 'tests/', 'tools/', 'web-demo/', 'README.md')
+DOC_PATH = re.compile(r'(?<![\w/.-])docs/[A-Za-z0-9_./-]*[A-Za-z0-9_-]\.md\b')
+OTHER_REPO = re.compile(r'\b(q2-os|q2-toolchain|q2-factory|tsrs|qemu|linux|site)[ `]*$')
 
 
 def tracked(pattern=None):
@@ -106,6 +110,28 @@ def check_links(files, pending, every):
                 errors.append(f'{name}:{number}: {target}: no such heading')
     for key in sorted(pending - used):
         errors.append(f'{PENDING.relative_to(ROOT)}: {key}: resolves or is gone; remove it')
+    return errors
+
+
+def check_doc_paths(files):
+    """Every docs/NAME.md path cited in a tracked file must exist here."""
+    known = set(files)
+    errors = []
+    for name in files:
+        if name in ('tools/check_docs.py', 'tools/test_check_docs.py'):
+            continue
+        try:
+            text = (ROOT / name).read_text(encoding='utf-8')
+        except (UnicodeDecodeError, IsADirectoryError, FileNotFoundError):
+            continue
+        previous = ''
+        for number, line in enumerate(text.splitlines(), 1):
+            for m in DOC_PATH.finditer(line):
+                before = (previous + ' ' + line[:m.start()]).rstrip('[')
+                if m.group(0) in known or OTHER_REPO.search(before):
+                    continue
+                errors.append(f'{name}:{number}: {m.group(0)}: no such document')
+            previous = line
     return errors
 
 
@@ -194,6 +220,7 @@ def main():
     spec_errors, defined = check_specification(SPEC, (ROOT / SPEC).read_text(encoding='utf-8'))
     errors += spec_errors
     errors += check_citations(defined, every)
+    errors += check_doc_paths(every)
     for error in errors:
         print(error, file=sys.stderr)
     return 1 if errors else 0

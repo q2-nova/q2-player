@@ -59,6 +59,26 @@ class CitationTest(unittest.TestCase):
         self.assertEqual(errors, ['docs/a.md:1: UX-002 is not in docs/specification.md'])
 
 
+class DocPathTest(unittest.TestCase):
+    def test_flags_a_missing_document_but_not_another_repository(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / 'src').mkdir()
+            (root / 'docs').mkdir()
+            (root / 'docs' / 'a.md').write_text('# A\n')
+            (root / 'src' / 'x.rs').write_text(
+                '// docs/a.md, docs/gone.md, q2-os docs/hardware.md, q2-toolchain `docs/b.md`\n'
+                '// https://github.com/q2-nova/q2-os/blob/main/docs/c.md\n'
+                'Measured in q2-os\n[docs/d.md](https://example.org/d)\n')
+            saved = check_docs.ROOT
+            check_docs.ROOT = root
+            try:
+                errors = check_docs.check_doc_paths(['docs/a.md', 'src/x.rs'])
+            finally:
+                check_docs.ROOT = saved
+        self.assertEqual(errors, ['src/x.rs:1: docs/gone.md: no such document'])
+
+
 class LinkTest(unittest.TestCase):
     def test_slug_matches_github_headings(self):
         self.assertEqual(check_docs.slug('Audio and sound'), 'audio-and-sound')
