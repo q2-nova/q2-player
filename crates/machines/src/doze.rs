@@ -40,8 +40,8 @@ pub const RECHECK_MS: u64 = 10_000;
 pub const MIN_DOZE_MS: u64 = 4 * 60_000;
 /// With fetch by duration, the radio wakes this much earlier than the fetch
 /// margin, and fetch-ahead starts this much earlier too (library
-/// `fetch_low_ms`), so the next songs land with the margin still left. V0.108
-/// production telemetry: a wake took 18 s to reach Navidrome and 37 s to a
+/// `fetch_low_ms`), so the next songs land with the margin still left. In
+/// production telemetry a wake took 18 s to reach Navidrome and 37 s to a
 /// settled link, then fetch-ahead waits its 8 s settle; the song after a wake
 /// still streamed at the boundary 64 s later.
 pub const RECONNECT_MS: u64 = 60_000;

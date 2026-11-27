@@ -1,6 +1,6 @@
-// [q2 patch] Stage timers for the Q2 optimization rig (docs/optimization-rig.md).
-// Compiled only with `--cfg q2_flac_profile` (tests/perf/build-variant.sh
-// RUSTFLAGS_EXTRA); a normal build contains none of this.
+// [q2 patch] Stage timers for `q2nd --bench` (docs/target-build.md#benchmarks).
+// Compiled only with `--cfg q2_flac_profile`; a normal build contains
+// none of this.
 //
 // Nanoseconds per stage accumulate in 32-bit counters (the Q2 has no 64-bit
 // atomics), enough for 4.2 s per stage. `q2::profile_take` returns and clears

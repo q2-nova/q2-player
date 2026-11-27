@@ -4,7 +4,7 @@
 #![deny(clippy::await_holding_lock, clippy::await_holding_refcell_ref)]
 // MSA intrinsics (core::arch::mips) and #[target_feature(enable = "msa")]
 // on the Q2's nightly only; every MSA routine keeps a portable fallback
-// (docs/optimization-rig.md).
+// (docs/target-build.md#msa-code).
 #![cfg_attr(target_arch = "mips", feature(stdarch_mips, mips_target_feature))]
 
 mod audio;
@@ -562,8 +562,8 @@ fn main() {
         ui_runtime.block_on(net.set_enabled_async(true, &config.wifi.networks));
     } else if args.mode == Mode::Mainline {
         // The kernel powers the Wi-Fi chip when it enumerates its SDIO host at
-        // boot. With Wi-Fi off, the helper's down powers it off again (39 mW,
-        // docs/validation/quick-experiments.md); nothing else would.
+        // boot. With Wi-Fi off, the helper's down powers it off again
+        // (39 mW); nothing else would.
         ui_runtime.block_on(net.set_enabled_async(false, &[]));
     }
     let tail_state = if args.mode == Mode::Mainline { PathBuf::from("/state/network/tailscale") }

@@ -20,12 +20,12 @@ const SOCKET: &str = "/tmp/q2nd-tailscale.sock";
 const MAINLINE_CACHE: &str = "/run/q2/tailscale-cache";
 /// Timer slack of the daemon's threads, in ns; 0 reverts to the kernel's
 /// 50 µs. Go's sysmon sleeps in 20 µs steps when busy. With 1 ms on the
-/// Q2 (V0.122, player paused): proxy 3.83–4.03 MiB/s against 3.37–3.68,
+/// Q2 (player paused): proxy 3.83–4.03 MiB/s against 3.37–3.68,
 /// 262–271 ms CPU per MiB against 312–330, idle CPU 39 ms/s against 51–54.
 const DAEMON_TIMER_SLACK_NS: u64 = 1_000_000;
-/// The Go collector's soft memory target. V0.123: anonymous RSS 6.2–6.8 MB,
-/// peak RSS 23.6 MB with 32 MiB. 16 MiB makes the collector work harder
-/// only in bursts above it (docs/validation/tailscaled-footprint-2026-11-21.md).
+/// The Go collector's soft memory target. Anonymous RSS 6.2–6.8 MB, peak
+/// RSS 23.6 MB with 32 MiB. 16 MiB makes the collector work harder only in
+/// bursts above it.
 const GO_MEMORY_LIMIT: &str = "16MiB";
 /// Hard cap of tailscaled's data segment (RLIMIT_DATA), so a runaway daemon
 /// exits (and is restarted after 15 s) instead of pushing the Q2 into
@@ -653,7 +653,7 @@ fn command(path: &Path, slack_ns: u64) -> Command {
     let mut cmd = Command::new(path);
     // The Q2's two Linux CPUs are SMT threads of one XBurst2 core. One Go
     // thread moved 96 MB through the proxy as fast as two, with 35% less CPU,
-    // and wakes 29% less at idle (docs/power-experiments.md, 23 and 28).
+    // and wakes 29% less at idle.
     cmd.env("GOMEMLIMIT", GO_MEMORY_LIMIT).env("GOGC", "50").env("GOMAXPROCS", "1").stdin(Stdio::null());
     if path.parent() == Some(Path::new("/usr/libexec/q2-network")) {
         // The installed root is immutable. Both the daemon and CLI must put
@@ -684,16 +684,16 @@ fn restart_delay(rs: bool, recent_exits: usize) -> Duration {
 #[derive(Clone, Debug, PartialEq)]
 struct Resolved { kind: Daemon, path: PathBuf, cli: PathBuf }
 
-/// The daemon the image ships: tsrsd when present (the default image, and
-/// images built with both daemons before 2026-11-22), otherwise the Go
-/// tailscaled and CLI (an image built with the Go option, or one from before
-/// tailscale-rs, so an app-only update keeps Tailscale working).
+/// The daemon the image ships: tsrsd when present (the default image),
+/// otherwise the Go tailscaled and CLI (an image built with the Go option,
+/// or one without tailscale-rs, so an app-only update keeps Tailscale
+/// working).
 fn resolve(_blocking: &crate::rt::Blocking, app: &Path) -> io::Result<Resolved> {
     let rs = app.join(RS_DAEMON);
     let (go, go_cli) = (app.join("tailscaled"), app.join("tailscale"));
     if rs.is_file() { return Ok(Resolved { kind: Daemon::Rs, path: rs.clone(), cli: rs }); }
     if go.is_file() && go_cli.is_file() { return Ok(Resolved { kind: Daemon::Go, path: go, cli: go_cli }); }
-    Err(io::Error::other("Install Tailscale card files; see docs/tailscale.md"))
+    Err(io::Error::other("The image has no Tailscale daemon (tsrsd or tailscaled)"))
 }
 
 /// tailscale-rs keeps its keys beside tailscaled's directory, never in it:

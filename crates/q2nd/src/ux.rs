@@ -2,7 +2,7 @@
 //!
 //! The screen never shows error codes or raw backend text: [`present`] turns a
 //! failure into a short plain message and reports its fixed [`Code`]. Journeys
-//! (a user action and its outcome), playback-stop causes, stuck states and owner
+//! (a user action and its outcome), playback-stop causes, stuck states and listener
 //! problem reports go to the opt-in telemetry outbox with a numeric snapshot of
 //! connectivity/playback state and a flight recorder of recent numeric events.
 //!
@@ -557,7 +557,7 @@ pub fn wake_presented(latency_us: u64) {
     if latency_us >= 100_000 { send(What::Journey, 0, Journey::Wake, Outcome::Shown, latency_us, 0); }
 }
 
-/// The owner's “Report a Problem”: marks the moment with the recent history.
+/// Report a Problem: marks the moment with the recent history.
 pub fn problem() {
     record(Mark::Problem, 0);
     send(What::Problem, 0, current_journey(), Outcome::None, 0, 0);

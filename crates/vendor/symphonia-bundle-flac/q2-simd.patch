@@ -1236,9 +1236,9 @@ diff -ruN a/src/q2prof.rs b/src/q2prof.rs
 --- a/src/q2prof.rs	1969-12-31 18:00:00.000000000 -0600
 +++ b/src/q2prof.rs	2026-11-18 02:56:54.307952931 -0600
 @@ -0,0 +1,61 @@
-+// [q2 patch] Stage timers for the Q2 optimization rig (docs/optimization-rig.md).
-+// Compiled only with `--cfg q2_flac_profile` (tests/perf/build-variant.sh
-+// RUSTFLAGS_EXTRA); a normal build contains none of this.
++// [q2 patch] Stage timers for `q2nd --bench` (docs/target-build.md#benchmarks).
++// Compiled only with `--cfg q2_flac_profile`; a normal build contains
++// none of this.
 +//
 +// Nanoseconds per stage accumulate in 32-bit counters (the Q2 has no 64-bit
 +// atomics), enough for 4.2 s per stage. `q2::profile_take` returns and clears

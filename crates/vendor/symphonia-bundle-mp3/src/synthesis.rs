@@ -267,7 +267,7 @@ fn synthesis_lanes<V: Lanes>(
 
         // The V vectors of the new slots, the first slot's first: a vector
         // loaded right after it was stored waits 12 cycles on the X2000
-        // (docs/x2000-msa.md), and the window of a slot starts with the V
+        // (q2-toolchain docs/x2000-msa.md), and the window of a slot starts with the V
         // vector of that slot.
         for lane in first..last {
             let r = &rows[lane];

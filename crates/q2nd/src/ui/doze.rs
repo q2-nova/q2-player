@@ -3,12 +3,13 @@
 //! runs low or the listener needs the network; the prefetch worker then
 //! refills while it is up.
 //!
-//! The radio is down while at least the next half hour of the queue is
-//! playable offline, and up for the listener or when more items need
-//! caching. A reconnect costs 9–52 J against a 5–16 mW
-//! saving (docs/validation/radio-doze.md), so a doze must be long: the
-//! threshold is 30 min of complete on-card audio, and the wake margin leaves
-//! time to reconnect and download the next song before the local run ends.
+//! The radio is down while enough of the queue is playable offline, and up
+//! for the listener or when more items need caching. A reconnect costs
+//! 9–52 J against a 5–16 mW saving, so a doze must be long. With fetch by
+//! duration (the default) the radio dozes with 8 minutes of complete on-card
+//! audio ahead and wakes at 4; otherwise at `power.doze_ahead_minutes` and
+//! `power.doze_wake_minutes` (30 and 5). The wake margin leaves time to
+//! reconnect and download the next song before the local run ends.
 //!
 //! A pause dozes the radio too, but only with the screen off and idle: with
 //! the screen on, the listener may be browsing for something to play. The
@@ -64,12 +65,11 @@ pub struct Inputs {
 /// backlight goes off after 30 s untouched, so 90 s after the last input).
 /// The key counts whole minutes and 0 turns the paused doze off, so one is
 /// the shortest delay it can give. A doze pays a reconnect when the screen
-/// next lights: 3–33 s to the link (V0.130 doze log `reconnect_ms`), and
-/// tsrsd 0.1.2 reaches Navidrome about 14 s after the wake. The minute skips
+/// next lights: 3–33 s to the link (doze log `reconnect_ms`), and
+/// tsrsd reaches Navidrome about 14 s after the wake. The minute skips
 /// that wait after a glance or a pocketing that lights the screen again
-/// soon, and costs about 2 J of the 35 mW paused saving per pause
-/// (docs/validation/power-proxies-2026-11-22.md), less than one reconnect
-/// (9–52 J, docs/validation/radio-doze.md).
+/// soon, and costs about 2 J of the 35 mW paused saving per pause, less
+/// than one reconnect (9–52 J).
 pub const PAUSED_DELAY_MINUTES: u32 = 1;
 
 /// The paused-doze delay `power.doze_paused_minutes` asks for; None when 0.

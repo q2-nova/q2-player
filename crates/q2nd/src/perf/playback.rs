@@ -1,5 +1,5 @@
 //! One generated file through the real player thread: read-ahead, demux,
-//! decode, conversion, gain and the sink (docs/audio-path-review.md).
+//! decode, conversion, gain and the sink.
 //!
 //! Scenes:
 //! - `fake`: the paced fake sink (real time, no libasound);

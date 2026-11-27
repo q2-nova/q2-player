@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 /// 16-byte alignment for tables and state the kernels load as vectors: an
 /// aligned `ld.w` costs 1.0 cycle on the X2000, an unaligned one 1.5 and one
-/// across a 32-byte line 2.0 (docs/x2000-msa.md).
+/// across a 32-byte line 2.0 (q2-toolchain docs/x2000-msa.md).
 #[repr(C, align(16))]
 pub(crate) struct Aligned16<T>(pub T);
 

@@ -6,7 +6,7 @@
 //! anything else stores `(s*a + d*(255-a) + 127) / 255` per channel with a
 //! zero top byte).
 //!
-//! Layout (docs/x2000-msa.md): four `0x00RRGGBB` pixels per vector, no
+//! Layout (q2-toolchain docs/x2000-msa.md): four `0x00RRGGBB` pixels per vector, no
 //! shuffle for per-channel work. Source and destination bytes interleave
 //! (`ilvr.b`/`ilvl.b`) against interleaved weights so one `dotp_u.h` gives
 //! `s*a + d*(255-a)` per channel in 16 bits; `x / 255` is

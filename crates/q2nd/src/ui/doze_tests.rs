@@ -706,8 +706,8 @@ fn already_dozing_track_advance_keeps_a_conservative_bound_and_wakes_low_even_wi
     drop(app); player.shutdown(); std::fs::remove_dir_all(root).unwrap();
 }
 
-/// docs/bugs/wifi-lps-after-power-cycle.md: every time the helper powers the
-/// combo chip up after a `down`, the Bluetooth thread hears of it once.
+/// Every time the helper powers the combo chip up after a `down`, the
+/// Bluetooth thread hears of it once (docs/bluetooth.md).
 #[test]
 fn each_wifi_power_up_reaches_bluetooth_once() {
     let _exclusive = crate::ui::TEST_FIXTURE.lock().unwrap_or_else(|e| e.into_inner());

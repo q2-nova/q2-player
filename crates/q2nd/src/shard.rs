@@ -13,7 +13,7 @@
 //! Every creation or rename into a store's directories holds that store's
 //! directory lock (`Paths::lock_store`), so the migration's moves and the
 //! writers' creates never interleave. The first read-only or I/O error stops
-//! the migration (docs/bugs/exfat-migration-readonly-2026-11-18.md).
+//! the migration.
 use md5::{Digest, Md5};
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;

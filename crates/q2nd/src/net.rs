@@ -72,7 +72,7 @@ pub struct Net {
     simulated: bool,
     /// Exists while the latest request is Wi-Fi On without Offline Mode:
     /// init then starts the supplicant at boot, overlapping association with
-    /// the player's start (docs/startup-ideas.md, 1b). None off mainline.
+    /// the player's start. None off mainline.
     autostart: Option<PathBuf>,
 }
 

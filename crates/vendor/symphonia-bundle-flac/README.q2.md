@@ -68,10 +68,9 @@ MSA instruction choices follow [X2000 instruction costs](https://github.com/q2-n
   `#[target_feature(enable = "msa")]` function; the vector operations are
   inlined into it.
 
-A first version decoded into one interleaved work buffer (8 bytes per
-frame, 37 KiB for a 4,608-frame block). On the Q2 its output pass ran at L2
-copy speed (5 cycles per sample) and prediction at 12; the planar layout
-with 480-frame runs replaced it (`docs/app-size-and-speed.md`).
+The decoder works on planar 480-frame runs: one interleaved work buffer
+(8 bytes per frame, 37 KiB for a 4,608-frame block) ran its output pass at
+L2 copy speed on the Q2 (5 cycles per sample) and prediction at 12.
 
 ## Exactness
 

@@ -282,7 +282,8 @@ pub struct State {
     pub waiting: u32,
 }
 
-/// Counts of the controller checks that follow a Wi-Fi power-up (docs/bugs/wifi-lps-after-power-cycle.md).
+/// Counts of the controller checks that follow a Wi-Fi power-up
+/// (docs/bluetooth.md, "After the Wi-Fi chip powers up again").
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Resync {
     /// Wi-Fi power-ups seen while the controller was ready.

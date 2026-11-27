@@ -23,10 +23,9 @@ type Key = (String, Source, u32);
 
 /// Decoded artwork kept in memory. Cover Flow's drawn and warmed window is
 /// about 25 covers of 150 px (88 KiB each, 2.2 MiB); Home's slides are 320 px
-/// (400 KiB). Everything else reloads from the card's PNG cache. It was
-/// 8 MiB: on the Q2 (118 MiB, 5 MB free and 20 MB of file cache after Cover
-/// Flow, V0.113) that was 40 % of the page cache tailscaled and the player
-/// page their code into (docs/server-status.md, memory).
+/// (400 KiB). Everything else reloads from the card's PNG cache. The cap
+/// leaves page cache for the code tailscaled and the player page in
+/// (SERVER-002; docs/server-status.md#memory).
 const MEMORY_BYTES: usize = 3 * 1024 * 1024;
 /// What a screen that filled the cache (Cover Flow) leaves when it closes:
 /// Now Playing's cover and a list's thumbnails.

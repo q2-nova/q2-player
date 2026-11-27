@@ -987,7 +987,7 @@ impl App {
     }
 
     /// The Wi-Fi chip powered up again (a doze wake, Wi-Fi or Offline toggled): the
-    /// Bluetooth side shares it and starts over (docs/bugs/wifi-lps-after-power-cycle.md).
+    /// Bluetooth side shares it and starts over (docs/bluetooth.md).
     fn tick_bluetooth_power(&mut self) {
         let power_ups = self.net.power_ups();
         if power_ups == self.bluetooth_power_ups { return }

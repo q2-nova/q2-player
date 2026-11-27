@@ -4,7 +4,7 @@
 //! associated channel (`initial_freq_list`). When the AP is no longer there,
 //! the supplicant reports `CTRL-EVENT-NETWORK-NOT-FOUND` and waits its 5 s
 //! `scan_interval` before a full scan: address at 12.4 s instead of 3.1 s on a
-//! hit (docs/validation/quick-experiments.md, wifi-fast-03). On the first
+//! hit. On the first
 //! NOT-FOUND of a radio generation, early on and while the search policy is
 //! not parked, the app asks for the full scan at once. Counted as sent only
 //! when the supplicant accepts it (a `FAIL-BUSY` keeps it armed).

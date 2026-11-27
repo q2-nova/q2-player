@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! Settings, kept as TOML on the card (`Q2Navidrome/config.toml`) so the
+//! Settings, kept as TOML on the card (`Q2Mainline/config.toml`) so the
 //! server can be set up from a computer, and rewritten when changed on the Q2.
 
 mod keep;
@@ -152,7 +152,7 @@ impl Diagnostics {
 #[serde(default)]
 pub struct Tailscale {
     /// Route all Navidrome requests through the local Tailscale proxy. The
-    /// daemon is the one the image ships (docs/tailscale-backend.md); the
+    /// daemon is the one the image ships (NETWORK-001); the
     /// `backend` key of app 0.127–0.130 is read and ignored.
     pub enabled: bool,
 }
@@ -199,7 +199,7 @@ pub struct Bluetooth {
     pub uart_mode: String,
     /// After the Wi-Fi chip powers up again (a radio doze wake), run the controller's
     /// start-up commands again when no headphones are connected
-    /// (docs/bugs/wifi-lps-after-power-cycle.md). Written only when turned off.
+    /// (docs/bluetooth.md). Written only when turned off.
     #[serde(skip_serializing_if = "is_true")]
     pub resync_after_wifi: bool,
 }
@@ -282,8 +282,8 @@ impl Default for Playback {
     fn default() -> Self {
         Playback {
             eq: Default::default(),
-            // MP3 320 saves about 6 mW against streaming a 918 kbit/s FLAC
-            // (docs/validation/stream-format-power.md); originals at or
+            // MP3 320 saves about 6 mW against streaming a 918 kbit/s
+            // FLAC; originals at or
             // under 320 kbit/s still stream untouched (library::variant).
             stream_quality: options::DEFAULT_STREAM_QUALITY,
             download_quality: options::DEFAULT_DOWNLOAD_QUALITY,
@@ -332,9 +332,8 @@ pub struct Storage {
     pub prefetch_songs: u32,
     /// Fetch ahead in bursts of this many songs, once the next song is not
     /// on the card, instead of one at a time; 0 keeps one at a time. Four:
-    /// quick-batch-01c measured 2.4 J per MP3 320 song in a burst of four
-    /// against 5.9 J alone, about 17 mW over a 210 s song
-    /// (docs/validation/quick-experiments.md).
+    /// 2.4 J per MP3 320 song in a burst of four against 5.9 J alone, about
+    /// 17 mW over a 210 s song.
     pub fetch_batch: u32,
     /// Fetch ahead by duration instead (0: by `fetch_batch`): once less than
     /// `fetch_low_minutes` of cached songs follow the playing one, fetch the

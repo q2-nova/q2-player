@@ -61,7 +61,7 @@ impl Drop for CoverFlow {
     fn drop(&mut self) {
         if self.frames > 0 { log::info!("cover flow: {} frames, middle cover missing in {}, art ready on entry {}/{}", self.frames, self.missing, self.ready_entries, self.entries); }
         // Its covers filled the decoded-art cache: keep a little, and return
-        // the freed heap to the kernel (docs/server-status.md, memory).
+        // the freed heap to the kernel (docs/server-status.md#memory).
         if let Some(lib) = self.lib.take() {
             lib.art.close_window();
             lib.art.shrink_memory(crate::library::art::MEMORY_AFTER_BROWSING);

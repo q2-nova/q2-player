@@ -433,8 +433,8 @@ mod tests {
         assert_eq!(flat_count(&lib, Store::Songs), 0);
     }
 
-    /// Host reproduction harness for the 2026-11-18 exFAT read-only event
-    /// (docs/bugs/exfat-migration-readonly-2026-11-18.md). Run against a
+    /// Host reproduction harness for an exFAT card the kernel set read-only
+    /// during the shard migration. Run against a
     /// mounted exFAT image only, never a card:
     /// `Q2_GENERATED_TEST_ROOT=/run/media/USER/IMAGE Q2_STRESS_FILES=7300 cargo test -p q2nd
     /// library::layout::tests::exfat_stress -- --ignored --nocapture`.

@@ -73,11 +73,10 @@ pub(crate) fn lock_code(blocking: &crate::rt::Blocking) -> Pinned {
 
 /// How `lock_code` pins the code, from `Q2ND_LOCK` (read once, at the
 /// pin after the first frame), so one binary can be compared on the Q2:
-/// - `onfault` (default since 2026-11-21): each page is locked when first run
+/// - `onfault` (default): each page is locked when first run
 ///   (mlock2 MLOCK_ONFAULT), so code never run takes no memory, and code once
-///   run is never evicted. On the Q2 (V0.126) it locked 12.9 MB against
-///   16.3 MB for `all`, with the same UI latency warm and after drop_caches
-///   (docs/validation/memory-headroom-2026-11-21.md);
+///   run is never evicted. On the Q2 it locked 12.9 MB against 16.3 MB for
+///   `all`, with the same UI latency warm and after drop_caches;
 /// - `all`: every page is read in and locked now;
 /// - `none`: nothing is locked; the kernel may evict any code page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

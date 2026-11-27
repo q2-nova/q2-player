@@ -1595,8 +1595,7 @@ impl Engine<'_> {
             result => result,
         }.map_err(|e|sym_err("open",e))?;
         // The player thread opens the next song between ALSA writes with
-        // about 400 ms buffered: a slow open shows as an underrun
-        // (docs/bugs/stream-cache-underrun.md).
+        // about 400 ms buffered: a slow open shows as an underrun.
         let total = open_started.elapsed();
         crate::ux::record(crate::ux::Mark::TrackOpen, crate::ux::track_open_value(origin_code(origin), song.spoken.is_some(),
             opened_after.as_millis() as u64, (total - opened_after).as_millis() as u64));

@@ -3,8 +3,8 @@
 //!
 //! The player thread decodes between ALSA writes with about 400 ms buffered.
 //! A read of the playing file that queues behind a fetch-ahead burst's card
-//! writeback can outlast that and underrun (docs/bugs/stream-cache-underrun.md:
-//! every timestamped recovery fell inside or just after a burst). Here a
+//! writeback can outlast that and underrun (every timestamped recovery
+//! fell inside or just after a burst). Here a
 //! async controller keeps up to `CAP` bytes of the file in memory ahead of the
 //! decoder, so a stall of seconds reaches the PCM only if it outlasts the
 //! buffer. It refills only once the buffer has fallen below half, in large

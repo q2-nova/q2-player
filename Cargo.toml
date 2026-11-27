@@ -14,9 +14,9 @@ exclude = ["build", "crates/vendor/libsqlite3-sys", "crates/vendor/symphonia-bun
 # size is resident memory. The player crate (which instantiates most generic
 # code, including tokio's and the image decoders'), audio and image decoding,
 # fonts and TLS crypto are optimized for speed; the other dependencies for
-# size. Measured on the Q2 against all-speed (V0.109): 1.8 MB less code, with
-# decode, EQ, image and UI benchmarks within noise; all-size saved 4.0 MB but
-# decoded JPEG/WebP 35-44% and MP3 19% slower (docs/status.md).
+# size (docs/target-build.md#code-size). Against all-speed this is 1.8 MB
+# less code with decode, EQ, image and UI benchmarks within noise; all-size
+# saves 4.0 MB more but decodes JPEG/WebP 35-44% and MP3 19% slower.
 opt-level = 3
 lto = true
 codegen-units = 1

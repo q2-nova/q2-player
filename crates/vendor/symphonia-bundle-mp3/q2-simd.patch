@@ -2100,9 +2100,9 @@ diff -ruN a/src/q2prof.rs b/src/q2prof.rs
 --- a/src/q2prof.rs	1969-12-31 18:00:00.000000000 -0600
 +++ b/src/q2prof.rs	2026-11-18 01:48:37.388322905 -0600
 @@ -0,0 +1,62 @@
-+// [q2 patch] Stage timers for the Q2 optimization rig (docs/optimization-rig.md).
-+// Compiled only with `--cfg q2_mp3_profile` (tests/perf/build-variant.sh
-+// RUSTFLAGS_EXTRA); a normal build contains none of this.
++// [q2 patch] Stage timers for `q2nd --bench` (docs/target-build.md#benchmarks).
++// Compiled only with `--cfg q2_mp3_profile`; a normal build contains
++// none of this.
 +//
 +// Nanoseconds per stage accumulate in 32-bit counters (the Q2 has no 64-bit
 +// atomics), enough for 4.2 s per stage. `q2::profile_take` returns and clears
@@ -4843,7 +4843,7 @@ diff -ruN a/src/q2simd.rs b/src/q2simd.rs
 +
 +/// 16-byte alignment for tables and state the kernels load as vectors: an
 +/// aligned `ld.w` costs 1.0 cycle on the X2000, an unaligned one 1.5 and one
-+/// across a 32-byte line 2.0 (docs/x2000-msa.md).
++/// across a 32-byte line 2.0 (q2-toolchain docs/x2000-msa.md).
 +#[repr(C, align(16))]
 +pub(crate) struct Aligned16<T>(pub T);
 +
@@ -5739,7 +5739,7 @@ diff -ruN a/src/synthesis.rs b/src/synthesis.rs
 +
 +        // The V vectors of the new slots, the first slot's first: a vector
 +        // loaded right after it was stored waits 12 cycles on the X2000
-+        // (docs/x2000-msa.md), and the window of a slot starts with the V
++        // (q2-toolchain docs/x2000-msa.md), and the window of a slot starts with the V
 +        // vector of that slot.
 +        for lane in first..last {
 +            let r = &rows[lane];
