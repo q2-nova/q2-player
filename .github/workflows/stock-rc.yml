@@ -1,0 +1,78 @@
+name: Stock physical qualification candidate
+
+on:
+  push:
+    tags: ['stock-v*-rc.*']
+
+permissions:
+  contents: read
+
+jobs:
+  stock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    concurrency:
+      group: stock-qualification-${{ github.ref_name }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check release tag source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^stock-v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]]
+          git merge-base --is-ancestor HEAD refs/remotes/origin/main
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF_NAME" \
+            --jq 'if .commit.verification.verified then .sha else empty end')
+          [[ "$sha" == "$(git rev-parse HEAD)" ]]
+          tag_object=$(git rev-parse "refs/tags/$GITHUB_REF_NAME")
+          [[ "$GITHUB_SHA" == "$sha" || "$GITHUB_SHA" == "$tag_object" ]]
+          remote_tag=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME" --jq .object.sha)
+          [[ "$remote_tag" == "$tag_object" ]]
+          gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object" |
+            jq -e --arg tag "$GITHUB_REF_NAME" --arg sha "$sha" \
+              '.tag == $tag and .object.type == "commit" and .object.sha == $sha and .verification.verified == true'
+          printf 'STOCK_PLAYER_COMMIT=%s\nSTOCK_TAG_OBJECT=%s\n' "$sha" "$tag_object" >> "$GITHUB_ENV"
+      - run: python3 -m unittest discover -s tests/release -p 'test_*.py' -v
+      - name: Admit tagged SDK, compiler, platform, TSRS and QEMU releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMPONENTS_OWNER: ${{ vars.Q2_COMPONENTS_OWNER || 'q2-nova' }}
+        run: |
+          python3 tools/fetch-build-tools.py --owner "$COMPONENTS_OWNER" --out build/stock-rc-inputs
+          test -f build/stock-rc-inputs/q2-os/os/compose_stock.py
+      - name: Install package and QEMU runtime tools
+        run: |
+          mapfile -t runtime < <(jq -r '.files[].runtime_dependencies[].package' build/stock-rc-inputs/qemu/qemu-artifact.json | sort -u)
+          for name in "${runtime[@]}"; do
+            [[ "$name" =~ ^[a-z0-9][a-z0-9+.-]*(:amd64)?$ ]]
+          done
+          sudo apt-get update
+          sudo apt-get install -y cpio squashfs-tools podman "${runtime[@]}"
+      - name: Fetch locked Cargo sources and build the paired target
+        run: |
+          nightly=$(jq -er .rust_toolchain build/stock-rc-inputs/q2-os/os/sources.json)
+          rustup toolchain install "$nightly" --profile minimal --component rust-src
+          cargo "+$nightly" fetch --locked
+          std_manifest="$PWD/build/stock-rc-inputs/compiler/install/lib/rustlib/src/rust/library/Cargo.toml"
+          cargo "+$nightly" fetch --locked --manifest-path "$std_manifest"
+          python3 tools/build-target.py --component-lock build/stock-rc-inputs/component-lock.json \
+            --sdk build/stock-rc-inputs/sdk/mipsel-buildroot-linux-gnu_sdk-buildroot \
+            --toolchain-repo build/stock-rc-inputs/q2-toolchain --compiler-work build/stock-rc-inputs/compiler \
+            --os-repo build/stock-rc-inputs/q2-os --producer-inputs build/stock-rc-inputs/producer-inputs.json \
+            --out build/paired-player
+      - name: Prepare, pack, read back and boot the exact stock archive
+        run: bash tools/build-stock-rc.sh
+      - name: Attach the checked bytes to a new private draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          remote_tag=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME" --jq .object.sha)
+          [[ "$remote_tag" == "$STOCK_TAG_OBJECT" ]]
+          python3 tools/stock-draft.py --directory build/stock-rc-release \
+            --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --commit "$STOCK_PLAYER_COMMIT"

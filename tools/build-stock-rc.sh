@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+inputs="$PWD/build/stock-rc-inputs"
+os="$inputs/q2-os"
+image="$os/build/stock-rc-image"
+package=build/stock-rc-package
+boot=build/stock-rc-boot
+release=build/stock-rc-release
+version=V0.02
+
+python3 "$os/os/compose_stock.py" prepare --assets "$inputs/q2-os-assets" \
+  --output "$os/build/stock-rc-inputs"
+python3 "$os/os/compose_stock.py" image --assets "$inputs/q2-os-assets" \
+  --stock-inputs "$os/build/stock-rc-inputs" --player-source "$PWD" \
+  --app "$PWD/build/paired-player/q2nd" --tsrsd "$inputs/tsrs" \
+  --tsrs-source "$inputs/tsrs-source" --release-tag "$version" \
+  --qemu-user "$inputs/qemu/bin/qemu-mipsel" --output "$image"
+python3 tools/verify-package.py pack-stock --os-repo "$os" \
+  --component-lock "$inputs/component-lock.json" --image "$image" \
+  --version "$version" --installed-version V0.00 --out "$package"
+python3 tools/verify-package.py boot-stock --os-repo "$os" \
+  --component-lock "$inputs/component-lock.json" --package "$package/update.tar" \
+  --pack-receipt "$package/result.json" --qemu "$inputs/qemu/bin/qemu-system-mipsel" \
+  --qemu-data "$inputs/qemu/share/qemu" --native-qemu --out "$boot"
+
+mkdir "$release"
+cp "$package/update.tar" "$release/stock-qualification-update.tar"
+jq -s --arg version "$version" \
+  '.[0] + {version: $version, player_commit: env.STOCK_PLAYER_COMMIT, player_tag: env.GITHUB_REF_NAME,
+           components: .[1], release_inputs: .[2], stock_pack: .[3]}' \
+  "$boot/result.json" "$inputs/component-lock.json" "$inputs/producer-inputs.json" \
+  "$package/result.json" > "$release/result.json"
+python3 tools/release-source.py --package "$release/stock-qualification-update.tar" \
+  --record "$release/result.json" --producer-inputs "$inputs/producer-inputs.json" \
+  --out "$release/player-source.tar.gz"
+(cd "$release" && sha256sum stock-qualification-update.tar result.json player-source.tar.gz > SHA256SUMS)

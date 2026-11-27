@@ -96,3 +96,12 @@ root readiness with disposable guest storage. The normal image has no
 simulator player probe, so the result leaves player readiness unset. Keep
 the exact `update.tar` for the physical stock installation, local playback
 and recovery checks. Only those checks qualify it for the stock draft gate.
+
+A signed annotated `stock-vX.Y.Z-rc.N` tag on a verified `main` commit can
+run the stock qualification workflow once the flat release lock selects a
+published stock-capable OS version. The workflow builds one paired app and
+portal and uses stock firmware version `V0.02`. It attaches
+`stock-qualification-update.tar`, its boot and package evidence, corresponding
+player source, and `SHA256SUMS` directly to a newly created GitHub draft.
+Keep that draft private during physical qualification. The workflow refuses
+to reuse an existing draft, including after an interrupted upload.
