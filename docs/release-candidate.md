@@ -121,10 +121,50 @@ A signed annotated `stock-vX.Y.Z-rc.N` tag on a verified `main` commit can
 run the stock qualification workflow once the flat release lock selects a
 published stock-capable OS version. The workflow builds one paired app and
 portal. The provisional physical trial versions live in
-`stock-release.json`. The selected candidate is `V0.02`, with factory
-`V1.32` as the intended starting version. The trial is pending.
-The workflow attaches `update.tar`, its boot and package evidence, corresponding
-player source, `q2nd-symbols.tar.gz` and `SHA256SUMS` directly to a newly
-created GitHub draft.
+`stock-release.json`. A new GitHub draft holds `update.tar`, its boot and
+package evidence, corresponding player source, `q2nd-symbols.tar.gz`,
+`stock-radio-source.tar.gz` and `SHA256SUMS`.
 Keep that draft private during physical qualification. The workflow refuses
 to reuse an existing draft, including after an interrupted upload.
+
+## Stage a stable stock release
+
+Use the draft from a signed `stock-vX.Y.Z-rc.N` tag after a physical test of
+that exact `update.tar` from the stated starting firmware. Record stock
+installation, generated local playback, and recovery in the
+`hardware-qualification.json` format above. Keep that report private. The Wi-Fi driver
+source and Bluetooth controller firmware have separate provenance. The owner confirmed permission on
+2026-11-27 to redistribute the two pinned RTL8733BS Bluetooth files in the
+public GitHub stock release. The promotion check verifies the installed
+`rtl8733bs_fw` and `rtl8733bs_config` against those exact approved digests
+and checks the bundled OS provenance notice. The permission covers that pair.
+Install `squashfs-tools` on the promotion host for the readback.
+
+Download the stock draft and check it with the tagged OS checkout:
+
+```sh
+gh release download "$CANDIDATE" --repo q2-nova/q2-player --dir "$ASSETS"
+python3 tools/promote-stock.py --candidate "$CANDIDATE" --stable "$STABLE" \
+  --directory "$ASSETS" --os-repo "$OS" --hardware "$HARDWARE_REPORT" \
+  --notes "$NOTES"
+```
+
+The check verifies the signed RC source, GitHub asset digests, archive
+contents, physical test report, player corresponding source and relink
+instructions, and the matching OS release with Buildroot source and notices.
+It works on the existing archive and uses the OS commit recorded by that RC.
+
+Write release notes for stock Shanling Q2 owners. Include the tested starting
+and resulting firmware versions, the stock installation and recovery steps,
+the player archive `player-source.tar.gz` with its libopenaptx license and
+relink instructions, and a link to the exact q2-os release with its
+`buildroot-legal-info.tar.gz`. Name the bundled `stock-radio-source.tar.gz` for
+Wi-Fi driver and tools source, notices and relink instructions.
+Link the matching kernel source and describe which firmware is bundled.
+Keep private paths, logs and hardware identifiers out of release notes.
+
+After approval to stage, create and push a signed stable tag (for example
+`v0.1.0`) pointing to the exact stock RC commit. Rerun the command with
+`--stage` to attach the unchanged archive, source, debug symbols, result and
+checksums to a new stable draft. The command verifies the uploaded asset
+digests. Review the draft and notes before publishing through GitHub.

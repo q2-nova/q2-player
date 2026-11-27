@@ -6,11 +6,19 @@ import hashlib
 import json
 import re
 import subprocess
+import tarfile
 from pathlib import Path
 
 
 TAG = r'stock-v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*'
-PAYLOADS = ('update.tar', 'result.json', 'player-source.tar.gz', 'q2nd-symbols.tar.gz')
+RADIO_SOURCE = 'stock-radio-source.tar.gz'
+PAYLOADS = ('update.tar', 'result.json', 'player-source.tar.gz', 'q2nd-symbols.tar.gz', RADIO_SOURCE)
+# Owner-approved exact stock Bluetooth patch and configuration.
+BLUETOOTH = {
+    'rtl8733bs_fw': '99603578f7f2b969e40a8156d1bdfd96f3418b4dc39770b6dc9a2eec1cb7bbe8',
+    'rtl8733bs_config': 'e1bd37cbbf18362e429b05b508a3341846127c51a11565d0514b977281087297',
+}
+
 
 
 def digest(path):
@@ -54,9 +62,27 @@ def admit(directory, tag, commit, trial, os_repo):
             or report['player_ready'] is not None
             or report['hardware_qualified'] is not False):
         raise ValueError('stock draft requires the matching booted, unqualified archive')
-    if read_archive(os_repo, directory / 'update.tar', package_sha)['version'] != version:
+    archive = read_archive(os_repo, directory / 'update.tar', package_sha)
+    if archive['version'] != version:
         raise ValueError('stock trial version differs from the archived updater manifest')
     symbols(directory / 'q2nd-symbols.tar.gz')
+    with tarfile.open(directory / RADIO_SOURCE) as source:
+        radio = json.load(source.extractfile('./radio-source.json'))
+    if (radio['schema'] != 1 or radio['os_source_commit'] != report['components']['q2-os']
+            or radio['image_manifest_sha256'] != packed['image_manifest_sha256']
+            or radio['rootfs_sha256'] != archive['files']['recovery-update/rootfs.squashfs']['sha256']):
+        raise ValueError('stock radio source does not identify the packed OS image')
+
+
+def check_bluetooth(root):
+    for name, expected in BLUETOOTH.items():
+        payload = subprocess.check_output(['unsquashfs', '-cat', root, f'lib/firmware/rtlbt/{name}'])
+        if hashlib.sha256(payload).hexdigest() != expected:
+            raise ValueError(f'stock archive has a different Bluetooth file: {name}')
+    notice = subprocess.check_output([
+        'unsquashfs', '-cat', root, 'usr/share/doc/q2-os/rtl8733bs-provenance.json'])
+    if json.loads(notice).get('files') != BLUETOOTH:
+        raise ValueError('Bluetooth provenance does not identify the exact bundled pair')
 
 
 def symbols(archive):

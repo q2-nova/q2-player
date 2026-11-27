@@ -1,6 +1,8 @@
 import importlib.util
+from io import BytesIO
 import json
 from pathlib import Path
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -12,7 +14,10 @@ DRAFT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(DRAFT)
 TAG = 'stock-v0.1.0-rc.1'
 COMMIT = 'a' * 40
-TRIAL = ('V0.02', 'V1.32')
+TRIAL = ('V0.10', 'V1.32')
+OS_SHA = 'b' * 40
+ROOTFS = {'recovery-update/rootfs.squashfs': {'sha256': 'c' * 64}}
+IMAGE_SHA = 'd' * 64
 
 
 class StockDraftTest(unittest.TestCase):
@@ -24,7 +29,7 @@ class StockDraftTest(unittest.TestCase):
         package.write_bytes(b'generated archive')
         self.metadata = self.directory / 'stock-release.json'
         self.metadata.write_text(json.dumps(dict(zip(('version', 'starting_version'), TRIAL))))
-        self.read_archive = mock.patch.object(DRAFT, 'read_archive', return_value={'version': TRIAL[0]}).start()
+        self.read_archive = mock.patch.object(DRAFT, 'read_archive', return_value={'version': TRIAL[0], 'files': ROOTFS}).start()
         self.addCleanup(mock.patch.stopall)
         (self.directory / 'player-source.tar.gz').write_bytes(b'generated source')
         (self.directory / 'q2nd-symbols.tar.gz').write_bytes(b'generated symbols')
@@ -37,7 +42,24 @@ class StockDraftTest(unittest.TestCase):
         }
         self.report['stock_pack'] = {field: self.report[field] for field in (
             'version', 'starting_version', 'update_tar_sha256')}
+        self.report['components'] = {'q2-os': OS_SHA}
+        self.report['stock_pack']['image_manifest_sha256'] = IMAGE_SHA
+        self.write_radio(ROOTFS['recovery-update/rootfs.squashfs']['sha256'])
         self.write_report()
+
+    def write_radio(self, rootfs_sha):
+        raw = json.dumps(dict(schema=1, os_source_commit=OS_SHA, rootfs_sha256=rootfs_sha,
+                              image_manifest_sha256=IMAGE_SHA)).encode()
+        with tarfile.open(self.directory / DRAFT.RADIO_SOURCE, 'w:gz') as source:
+            member = tarfile.TarInfo('./radio-source.json')
+            member.size = len(raw)
+            source.addfile(member, BytesIO(raw))
+
+    def test_radio_source_must_cover_packed_root(self):
+        self.write_radio('1' * 64)
+        self.write_report()
+        with self.assertRaisesRegex(ValueError, 'radio source does not identify'):
+            DRAFT.admit(self.directory, TAG, COMMIT, TRIAL, self.directory)
 
     def stage(self):
         return DRAFT.stage(self.directory, 'example/player', TAG, COMMIT, self.metadata, self.directory)
@@ -95,7 +117,7 @@ class StockDraftTest(unittest.TestCase):
         ]) as api, mock.patch('builtins.print'):
             self.stage()
         self.assertIn('draft=true', api.call_args_list[1].args)
-        self.assertTrue(any('Candidate firmware: V0.02. Provisional starting firmware: V1.32.' in arg
+        self.assertTrue(any('Candidate firmware: V0.10. Provisional starting firmware: V1.32.' in arg
                             for arg in api.call_args_list[1].args))
         self.assertIn(f'tag_name={TAG}', api.call_args_list[1].args)
         self.assertFalse(any(arg.startswith(('target_commitish=', 'make_latest='))
