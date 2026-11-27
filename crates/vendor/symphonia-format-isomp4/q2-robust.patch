@@ -1,0 +1,305 @@
+diff -ruN a/src/atoms/co64.rs b/src/atoms/co64.rs
+--- a/src/atoms/co64.rs	2026-11-21 03:19:06.986897536 -0600
++++ b/src/atoms/co64.rs	2026-11-21 03:19:07.007458374 -0600
+@@ -29,8 +29,8 @@
+ 
+         let entry_count = reader.read_be_u32()?;
+ 
+-        // TODO: Apply a limit.
+-        let mut chunk_offsets = Vec::with_capacity(entry_count as usize);
++        // [q2 patch] The count must fit the atom: version/flags, count, 8-byte entries.
++        let mut chunk_offsets = Vec::with_capacity(header.table_entries(entry_count, 8, 8)?);
+ 
+         for _ in 0..entry_count {
+             chunk_offsets.push(reader.read_be_u64()?);
+diff -ruN a/src/atoms/esds.rs b/src/atoms/esds.rs
+--- a/src/atoms/esds.rs	2026-11-21 03:19:06.987458188 -0600
++++ b/src/atoms/esds.rs	2026-11-21 03:19:07.007458374 -0600
+@@ -57,7 +57,8 @@
+ 
+         let mut descriptor = None;
+ 
+-        let mut scoped = ScopedStream::new(reader, header.data_len - AtomHeader::EXTRA_DATA_SIZE);
++        // [q2 patch] Checked: the atom may be shorter than its version and flags.
++        let mut scoped = ScopedStream::new(reader, header.field_len(AtomHeader::EXTRA_DATA_SIZE)?);
+ 
+         while scoped.bytes_available() > MIN_DESCRIPTOR_SIZE {
+             let (desc, desc_len) = read_descriptor_header(&mut scoped)?;
+@@ -76,7 +77,11 @@
+         // Ignore remainder of the atom.
+         scoped.ignore()?;
+ 
+-        Ok(EsdsAtom { header, descriptor: descriptor.unwrap() })
++        // [q2 patch] Upstream unwrapped: an esds atom without an ES descriptor panicked.
++        match descriptor {
++            Some(descriptor) => Ok(EsdsAtom { header, descriptor }),
++            None => decode_error("isomp4: missing es descriptor"),
++        }
+     }
+ }
+ 
+@@ -153,7 +158,11 @@
+         let mut dec_config = None;
+         let mut sl_config = None;
+ 
+-        let mut scoped = ScopedStream::new(reader, u64::from(len) - 3);
++        // [q2 patch] Checked: the descriptor may be shorter than its fixed fields.
++        let mut scoped = match u64::from(len).checked_sub(3) {
++            Some(len) => ScopedStream::new(reader, len),
++            None => return decode_error("isomp4: es descriptor too short"),
++        };
+ 
+         // Multiple descriptors follow, but only the decoder configuration descriptor is useful.
+         while scoped.bytes_available() > MIN_DESCRIPTOR_SIZE {
+@@ -290,6 +299,11 @@
+ 
+ impl ObjectDescriptor for DecoderSpecificInfo {
+     fn read<B: ReadBytes>(reader: &mut B, len: u32) -> Result<Self> {
++        // [q2 patch] Decoder configuration is tens of bytes.
++        if u64::from(len) > symphonia_core::io::Q2_MAX_TAG_BYTES {
++            return decode_error("isomp4: decoder specific info too long");
++        }
++
+         Ok(DecoderSpecificInfo { extra_data: reader.read_boxed_slice_exact(len as usize)? })
+     }
+ }
+diff -ruN a/src/atoms/hdlr.rs b/src/atoms/hdlr.rs
+--- a/src/atoms/hdlr.rs	2026-11-21 03:19:06.987458188 -0600
++++ b/src/atoms/hdlr.rs	2026-11-21 03:19:07.007458374 -0600
+@@ -72,8 +72,16 @@
+         reader.ignore_bytes(4 * 3)?;
+ 
+         // Human readable UTF-8 string of the track type.
+-        let buf = reader.read_boxed_slice_exact((header.data_len - 24) as usize)?;
+-        let name = String::from_utf8_lossy(&buf).to_string();
++        // [q2 patch] Checked length; a name longer than the tag limit is skipped unread.
++        let name_len = header.field_len(24)?;
++
++        let name = if name_len > symphonia_core::io::Q2_MAX_TAG_BYTES {
++            reader.ignore_bytes(name_len)?;
++            String::new()
++        }
++        else {
++            String::from_utf8_lossy(&reader.read_boxed_slice_exact(name_len as usize)?).to_string()
++        };
+ 
+         Ok(HdlrAtom { header, handler_type, name })
+     }
+diff -ruN a/src/atoms/ilst.rs b/src/atoms/ilst.rs
+--- a/src/atoms/ilst.rs	2026-11-21 03:19:06.988458198 -0600
++++ b/src/atoms/ilst.rs	2026-11-21 03:19:07.007458374 -0600
+@@ -364,6 +364,11 @@
+ 
+     // There could be more than one attached image.
+     for value in tag.values {
++        // [q2 patch] A picture that was skipped unread is not reported.
++        if value.data.is_empty() {
++            continue;
++        }
++
+         let media_type = match value.data_type {
+             DataType::Bmp => "image/bmp",
+             DataType::Jpeg => "image/jpeg",
+@@ -507,9 +512,17 @@
+         let _language = reader.read_be_u16()?;
+ 
+         // The data payload is the remainder of the atom.
+-        // TODO: Apply a limit.
+-        let data = reader
+-            .read_boxed_slice_exact((header.data_len - AtomHeader::EXTRA_DATA_SIZE - 4) as usize)?;
++        // [q2 patch] Checked length; a value longer than the tag limit (cover art, or a damaged
++        // length) is skipped unread and left empty.
++        let data_len = header.field_len(AtomHeader::EXTRA_DATA_SIZE + 4)?;
++
++        let data = if data_len > symphonia_core::io::Q2_MAX_TAG_BYTES {
++            reader.ignore_bytes(data_len)?;
++            Box::default()
++        }
++        else {
++            reader.read_boxed_slice_exact(data_len as usize)?
++        };
+ 
+         Ok(MetaTagDataAtom { header, data, data_type })
+     }
+@@ -532,8 +545,16 @@
+     fn read<B: ReadBytes>(reader: &mut B, header: AtomHeader) -> Result<Self> {
+         let (_, _) = AtomHeader::read_extra(reader)?;
+ 
+-        let buf = reader
+-            .read_boxed_slice_exact((header.data_len - AtomHeader::EXTRA_DATA_SIZE) as usize)?;
++        // [q2 patch] Checked length; a name longer than the tag limit is skipped unread.
++        let buf_len = header.field_len(AtomHeader::EXTRA_DATA_SIZE)?;
++
++        let buf: Box<[u8]> = if buf_len > symphonia_core::io::Q2_MAX_TAG_BYTES {
++            reader.ignore_bytes(buf_len)?;
++            Box::default()
++        }
++        else {
++            reader.read_boxed_slice_exact(buf_len as usize)?
++        };
+ 
+         // Do a lossy conversion because metadata should not prevent the demuxer from working.
+         let value = String::from_utf8_lossy(&buf).to_string();
+diff -ruN a/src/atoms/mod.rs b/src/atoms/mod.rs
+--- a/src/atoms/mod.rs	2026-11-21 03:19:06.989458207 -0600
++++ b/src/atoms/mod.rs	2026-11-21 03:19:07.007458374 -0600
+@@ -357,6 +357,29 @@
+         Ok(AtomHeader { atype, atom_len, data_len })
+     }
+ 
++    /// [q2 patch] The entry count of a table of `entry_len`-byte entries that follows `fixed_len`
++    /// bytes of this atom, or an error when the atom is too short to hold it. Upstream reserved
++    /// memory for the count as read (a "TODO: Apply a limit" in each table), so a damaged count
++    /// asked for up to 64 GiB.
++    pub fn table_entries(&self, count: u32, entry_len: u64, fixed_len: u64) -> Result<usize> {
++        let room = if self.atom_len == 0 { 0 } else { self.data_len.saturating_sub(fixed_len) };
++
++        if u64::from(count) * entry_len > room {
++            return decode_error("isomp4: table longer than its atom");
++        }
++
++        Ok(count as usize)
++    }
++
++    /// [q2 patch] The length of a descriptive field that fills the atom after `fixed_len` bytes,
++    /// or an error when the atom is shorter than that (upstream subtracted without a check).
++    pub fn field_len(&self, fixed_len: u64) -> Result<u64> {
++        match self.data_len.checked_sub(fixed_len) {
++            Some(len) => Ok(len),
++            None => decode_error("isomp4: atom shorter than its fields"),
++        }
++    }
++
+     #[allow(dead_code)]
+     pub fn base_header_len(&self) -> u64 {
+         match self.atom_len {
+diff -ruN a/src/atoms/stco.rs b/src/atoms/stco.rs
+--- a/src/atoms/stco.rs	2026-11-21 03:19:06.990458216 -0600
++++ b/src/atoms/stco.rs	2026-11-21 03:19:07.007458374 -0600
+@@ -29,8 +29,8 @@
+ 
+         let entry_count = reader.read_be_u32()?;
+ 
+-        // TODO: Apply a limit.
+-        let mut chunk_offsets = Vec::with_capacity(entry_count as usize);
++        // [q2 patch] The count must fit the atom: version/flags, count, 4-byte entries.
++        let mut chunk_offsets = Vec::with_capacity(header.table_entries(entry_count, 4, 8)?);
+ 
+         for _ in 0..entry_count {
+             chunk_offsets.push(reader.read_be_u32()?);
+diff -ruN a/src/atoms/stsc.rs b/src/atoms/stsc.rs
+--- a/src/atoms/stsc.rs	2026-11-21 03:19:06.990458216 -0600
++++ b/src/atoms/stsc.rs	2026-11-21 03:19:07.007458374 -0600
+@@ -67,12 +67,16 @@
+ 
+         let entry_count = reader.read_be_u32()?;
+ 
+-        // TODO: Apply a limit.
+-        let mut entries = Vec::with_capacity(entry_count as usize);
++        // [q2 patch] The count must fit the atom: version/flags, count, 12-byte entries.
++        let mut entries = Vec::with_capacity(header.table_entries(entry_count, 12, 8)?);
+ 
+         for _ in 0..entry_count {
+             entries.push(StscEntry {
+-                first_chunk: reader.read_be_u32()? - 1,
++                // [q2 patch] Chunk numbers start at 1; upstream subtracted from a 0.
++                first_chunk: match reader.read_be_u32()?.checked_sub(1) {
++                    Some(chunk) => chunk,
++                    None => return decode_error("isomp4: stsc entry first chunk is 0"),
++                },
+                 first_sample: 0,
+                 samples_per_chunk: reader.read_be_u32()?,
+                 sample_desc_index: reader.read_be_u32()?,
+@@ -94,8 +98,14 @@
+ 
+                 let n = entries[i + 1].first_chunk - entries[i].first_chunk;
+ 
+-                entries[i + 1].first_sample =
+-                    entries[i].first_sample + (n * entries[i].samples_per_chunk);
++                // [q2 patch] A sample number that does not fit is a damaged table.
++                entries[i + 1].first_sample = match n
++                    .checked_mul(entries[i].samples_per_chunk)
++                    .and_then(|samples| entries[i].first_sample.checked_add(samples))
++                {
++                    Some(first_sample) => first_sample,
++                    None => return decode_error("isomp4: stsc sample number overflow"),
++                };
+             }
+ 
+             // Validate that samples per chunk is > 0. Could the entry be ignored?
+diff -ruN a/src/atoms/stsz.rs b/src/atoms/stsz.rs
+--- a/src/atoms/stsz.rs	2026-11-21 03:19:06.991458225 -0600
++++ b/src/atoms/stsz.rs	2026-11-21 03:19:07.008458384 -0600
+@@ -40,8 +40,8 @@
+         let sample_count = reader.read_be_u32()?;
+ 
+         let sample_sizes = if sample_size == 0 {
+-            // TODO: Apply a limit.
+-            let mut entries = Vec::with_capacity(sample_count as usize);
++            // [q2 patch] The count must fit the atom: version/flags, size, count, 4-byte entries.
++            let mut entries = Vec::with_capacity(header.table_entries(sample_count, 4, 12)?);
+ 
+             for _ in 0..sample_count {
+                 entries.push(reader.read_be_u32()?);
+diff -ruN a/src/atoms/stts.rs b/src/atoms/stts.rs
+--- a/src/atoms/stts.rs	2026-11-21 03:19:06.991458225 -0600
++++ b/src/atoms/stts.rs	2026-11-21 03:19:07.008458384 -0600
+@@ -88,8 +88,8 @@
+ 
+         let mut total_duration = 0;
+ 
+-        // TODO: Limit table length.
+-        let mut entries = Vec::with_capacity(entry_count as usize);
++        // [q2 patch] The count must fit the atom: version/flags, count, 8-byte entries.
++        let mut entries = Vec::with_capacity(header.table_entries(entry_count, 8, 8)?);
+ 
+         for _ in 0..entry_count {
+             let sample_count = reader.read_be_u32()?;
+diff -ruN a/src/demuxer.rs b/src/demuxer.rs
+--- a/src/demuxer.rs	2026-11-21 03:19:06.992458235 -0600
++++ b/src/demuxer.rs	2026-11-21 03:19:07.008458384 -0600
+@@ -26,6 +26,9 @@
+ 
+ use log::{debug, info, trace, warn};
+ 
++/// [q2 patch] The most bytes `next_packet` reads for one sample.
++const Q2_MAX_SAMPLE_BYTES: u32 = 8 * 1024 * 1024;
++
+ pub struct TrackState {
+     codec_params: CodecParameters,
+     /// The track number.
+@@ -44,6 +47,8 @@
+         let mut codec_params = CodecParameters::new();
+ 
+         codec_params
++            // [q2 patch] `TimeBase::new` no longer panics on a zero timescale; `try_new` below
++            // refuses the file.
+             .with_time_base(TimeBase::new(1, trak.mdia.mdhd.timescale))
+             .with_n_frames(trak.mdia.mdhd.duration);
+ 
+@@ -442,6 +447,11 @@
+ 
+         let mut moov = moov.unwrap();
+ 
++        // [q2 patch] A zero timescale has no time base; upstream panicked in `TimeBase::new`.
++        if moov.traks.iter().any(|trak| trak.mdia.mdhd.timescale == 0) {
++            return decode_error("isomp4: track timescale is 0");
++        }
++
+         if moov.is_fragmented() {
+             // If a Segment Index (sidx) atom was found, add the segments contained within.
+             if sidx.is_some() {
+@@ -533,6 +543,13 @@
+             }
+         }
+ 
++        // [q2 patch] The largest sample of a codec this demuxer maps is a 65535-frame, 8-channel
++        // FLAC block of about 2 MiB. A longer one is a damaged size table; reading it would pull
++        // the rest of the file into memory.
++        if sample_info.len > Q2_MAX_SAMPLE_BYTES {
++            return decode_error("isomp4: sample too long");
++        }
++
+         Ok(Packet::new_from_boxed_slice(
+             next_sample_info.track_num as u32,
+             next_sample_info.ts,

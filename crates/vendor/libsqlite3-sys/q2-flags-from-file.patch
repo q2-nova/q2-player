@@ -1,0 +1,34 @@
+--- a/build.rs
++++ b/build.rs
+@@ -337,7 +337,21 @@
+         }
+         println!("cargo:rerun-if-env-changed=SQLITE_MAX_COLUMN");
+ 
+-        if let Ok(extras) = env::var("LIBSQLITE3_FLAGS") {
++        // [q2 patch] The compile options come from the repository's
++        // q2/toolchain/libsqlite3-flags for every build (host tests, the
++        // simulator and the Q2), not from the LIBSQLITE3_FLAGS environment.
++        // Read when the script runs: Cargo reuses a compiled build script
++        // across checkouts of the same workspace, so a compile-time path
++        // could name another checkout.
++        let flags = std::path::Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap())
++            .join("../../../q2/toolchain/libsqlite3-flags");
++        println!("cargo:rerun-if-changed={}", flags.display());
++        if env::var_os("LIBSQLITE3_FLAGS").is_some() {
++            panic!("LIBSQLITE3_FLAGS is not used: edit q2/toolchain/libsqlite3-flags");
++        }
++        {
++            let extras = std::fs::read_to_string(&flags)
++                .unwrap_or_else(|e| panic!("{}: {e}", flags.display()));
+             for extra in extras.split_whitespace() {
+                 if extra.starts_with("-D") || extra.starts_with("-U") {
+                     cfg.flag(extra);
+@@ -348,7 +362,7 @@
+                 }
+             }
+         }
+-        println!("cargo:rerun-if-env-changed=LIBSQLITE3_FLAGS");
++        println!("cargo:rerun-if-env-changed=LIBSQLITE3_FLAGS"); // [q2 patch] refused above
+ 
+         cfg.compile(lib_name);
+ 

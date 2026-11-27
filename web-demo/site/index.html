@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Try the Q2 Navidrome player in your browser with a sample library.">
+  <meta name="theme-color" content="#141719">
+  <title>Q2 Navidrome · Player demo</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="./audio.js" defer></script>
+  <script src="./streams.js" defer></script>
+  <script id="media-catalog" type="application/json">{}</script>
+  <script src="./timezone.js" defer></script>
+  <script src="./demo.js" defer></script>
+</head>
+<body>
+  <main class="demo">
+    <header class="intro">
+      <p class="signature">Q2<span></span>NAVIDROME</p>
+      <h1>Q2 player</h1>
+      <p class="description">Listen to independent albums, podcasts and live radio with the Q2 player.</p>
+    </header>
+
+    <section class="player" aria-label="Q2 player" aria-describedby="wheel-help" tabindex="0">
+      <div class="faceplate">
+        <div class="screen">
+          <canvas width="375" height="320" role="img" aria-label="Q2 player screen"></canvas>
+          <div class="screen-message">
+            <p class="screen-status" role="status">Loading player…</p>
+            <button type="button" class="retry" hidden>Retry</button>
+          </div>
+          <noscript><p class="no-script">Enable JavaScript to run the player.</p></noscript>
+        </div>
+      </div>
+      <div class="wheel-area">
+        <div class="wheel">
+          <button class="wheel-button back" type="button" data-input="3" aria-label="Back" title="Back (Escape). Hold for Now Playing." disabled>MENU</button>
+          <button class="wheel-button prev" type="button" data-input="5" aria-label="Previous track" title="Previous track (Left arrow)" disabled><span class="skip-icon" aria-hidden="true"></span></button>
+          <button class="wheel-button next" type="button" data-input="6" aria-label="Next track" title="Next track (Right arrow)" disabled><span class="skip-icon" aria-hidden="true"></span></button>
+          <button class="wheel-button play" type="button" data-input="4" aria-label="Play or pause" title="Play or pause (Space)" disabled><span class="play-icon" aria-hidden="true"></span></button>
+          <button class="wheel-button center" type="button" data-input="2" aria-label="Select" title="Select (Enter). Hold for options." disabled></button>
+        </div>
+        <div class="step-controls" aria-label="Scroll controls" role="group">
+          <button type="button" data-input="0" aria-label="Scroll up" title="Scroll up (Up arrow)" disabled><span aria-hidden="true"></span></button>
+          <button type="button" data-input="1" aria-label="Scroll down" title="Scroll down (Down arrow)" disabled><span aria-hidden="true"></span></button>
+        </div>
+      </div>
+      <p class="sr-only" id="current-state" role="status" aria-atomic="true"></p>
+    </section>
+
+    <aside class="guide" aria-label="Player controls">
+      <div class="media-source">
+        <label for="media-mode">Audio source</label>
+        <select id="media-mode">
+          <option value="online">Public streams</option>
+          <option value="preview">Offline demo samples</option>
+        </select>
+      </div>
+      <p class="stream-status" role="status" hidden>
+        <span id="stream-message"></span>
+        <button type="button" id="retry-stream" hidden>Retry</button>
+        <a id="station-page" target="_blank" rel="noopener noreferrer" hidden></a>
+        <button type="button" id="use-preview" hidden>Use demo sample</button>
+      </p>
+      <p id="media-credit" hidden><a id="media-publisher" target="_blank" rel="noopener noreferrer"></a> <a id="media-license" target="_blank" rel="noopener noreferrer" hidden></a></p>
+      <p class="audio-feedback" role="status" hidden>Audio couldn’t start. <button type="button" class="audio-retry">Retry audio</button></p>
+      <p id="wheel-help">Click or tap a menu item to open it. Scroll the screen or turn the wheel to browse. Hold the center for options. On Now Playing, ↑ raises the volume and ↓ lowers it.</p>
+      <dl class="key-guide">
+        <div><dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Scroll</dd></div>
+        <div><dt><kbd>Enter</kbd></dt><dd>Select</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>Back</dd></div>
+        <div><dt><kbd>Space</kbd></dt><dd>Play or pause</dd></div>
+      </dl>
+      <a class="offline-copy" href="./q2-player.html" download>Download offline demo</a>
+    </aside>
+  </main>
+</body>
+</html>

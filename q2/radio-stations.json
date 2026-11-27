@@ -1,0 +1,7 @@
+[
+  {"name":"FIP","stream_url":"https://icecast.radiofrance.fr/fip-midfi.mp3","home_page_url":"https://www.radiofrance.fr/fip","aliases":["FIP Radio"]},
+  {"name":"KEXP","stream_url":"https://kexp.streamguys1.com/kexp160.aac","home_page_url":"https://www.kexp.org/","aliases":["KEXP 90.3","KEXP 90.3 FM"]},
+  {"name":"Radio Paradise","stream_url":"https://stream-dc1.radioparadise.com/mp3-192","home_page_url":"https://radioparadise.com/","aliases":["Radio Paradise Main Mix","Radio Paradise Main"]},
+  {"name":"KCRW Eclectic 24","stream_url":"https://streams.kcrw.com/e24_mp3","home_page_url":"https://www.kcrw.com/live-now","aliases":["KCRW Eclectic24","Eclectic 24"]},
+  {"name":"WFMU","stream_url":"https://stream0.wfmu.org/freeform-128k","home_page_url":"https://wfmu.org/","aliases":["WFMU 91.1","WFMU 91.1 FM"]}
+]

@@ -1,0 +1,12 @@
+[package]
+name = "q2-aptx"
+version = "0.1.0"
+edition = "2024"
+description = "aptX and aptX-HD encoder: safe wrapper over vendored libopenaptx 0.2.0"
+license = "LGPL-2.1-or-later"
+publish = false
+build = "build.rs"
+
+[build-dependencies]
+cc = "=1.10.0"
+

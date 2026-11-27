@@ -1,0 +1,85 @@
+diff -ruN a/src/io/mod.rs b/src/io/mod.rs
+--- a/src/io/mod.rs	2026-11-21 03:19:06.855456960 -0600
++++ b/src/io/mod.rs	2026-11-21 03:19:06.863739795 -0600
+@@ -140,6 +140,17 @@
+     }
+ }
+ 
++/// [q2 patch] The most `read_boxed_slice` and `read_boxed_slice_exact` allocate before any of
++/// the requested bytes have been read.
++pub const Q2_READ_STEP: usize = 64 * 1024;
++
++/// [q2 patch] Tag values, attached pictures and other descriptive fields longer than this are
++/// skipped unread by the metadata readers and the MP4 demuxer. The player does not use embedded
++/// tags or pictures; reading a cover of several megabytes at every track start, and holding it
++/// while the track plays, cost memory and time for nothing, and a damaged length field could ask
++/// for the rest of the file.
++pub const Q2_MAX_TAG_BYTES: u64 = 64 * 1024;
++
+ /// `ReadBytes` provides methods to read bytes and interpret them as little- or big-endian
+ /// unsigned integers or floating-point values of standard widths.
+ pub trait ReadBytes {
+@@ -332,17 +343,34 @@
+     /// Reads up-to the number of bytes requested, and returns a boxed slice of the data or an
+     /// error.
+     fn read_boxed_slice(&mut self, len: usize) -> io::Result<Box<[u8]>> {
+-        let mut buf = vec![0u8; len];
+-        let actual_len = self.read_buf(&mut buf)?;
+-        buf.truncate(actual_len);
++        // [q2 patch] `len` is often a field of the file. Allocate as the bytes arrive: a
++        // damaged length must not size the allocation (README.q2.md).
++        let mut buf = Vec::with_capacity(len.min(Q2_READ_STEP));
++        while buf.len() < len {
++            let start = buf.len();
++            let step = (len - start).min(Q2_READ_STEP);
++            buf.resize(start + step, 0);
++            let actual_len = self.read_buf(&mut buf[start..])?;
++            buf.truncate(start + actual_len);
++            if actual_len < step {
++                break;
++            }
++        }
+         Ok(buf.into_boxed_slice())
+     }
+ 
+     /// Reads exactly the number of bytes requested, and returns a boxed slice of the data or an
+     /// error.
+     fn read_boxed_slice_exact(&mut self, len: usize) -> io::Result<Box<[u8]>> {
+-        let mut buf = vec![0u8; len];
+-        self.read_buf_exact(&mut buf)?;
++        // [q2 patch] As `read_boxed_slice`: one allocation of `len` up to `Q2_READ_STEP`
++        // (every audio packet), then growth with the bytes read.
++        let mut buf = Vec::with_capacity(len.min(Q2_READ_STEP));
++        while buf.len() < len {
++            let start = buf.len();
++            let step = (len - start).min(Q2_READ_STEP);
++            buf.resize(start + step, 0);
++            self.read_buf_exact(&mut buf[start..])?;
++        }
+         Ok(buf.into_boxed_slice())
+     }
+ 
+diff -ruN a/src/units.rs b/src/units.rs
+--- a/src/units.rs	2026-11-21 03:19:06.855456960 -0600
++++ b/src/units.rs	2026-11-21 03:19:06.864457044 -0600
+@@ -144,13 +144,14 @@
+ }
+ 
+ impl TimeBase {
+-    /// Creates a new `TimeBase`. Panics if either the numerator or denominator is 0.
++    /// Creates a new `TimeBase`.
++    ///
++    /// [q2 patch] Upstream panics if either the numerator or denominator is 0. Demuxers pass
++    /// sample rates and timescales read from the file, and the player aborts on a panic, so a
++    /// zero becomes 1 here: the times of such a stream are meaningless, and the player refuses
++    /// a stream whose decoded rate is 0.
+     pub fn new(numer: u32, denom: u32) -> Self {
+-        if numer == 0 || denom == 0 {
+-            panic!("TimeBase cannot have 0 numerator or denominator");
+-        }
+-
+-        TimeBase { numer, denom }
++        TimeBase { numer: numer.max(1), denom: denom.max(1) }
+     }
+ 
+     /// Accurately calculates a `Time` using the `TimeBase` and the provided `TimeStamp`. On

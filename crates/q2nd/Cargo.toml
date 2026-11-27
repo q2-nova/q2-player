@@ -1,0 +1,54 @@
+[package]
+name = "q2nd"
+version = "0.136.0"
+edition = "2024"
+
+[dependencies]
+q2-portal-trace = { path = "../portal-trace" }
+zeroize = "1"
+ab_glyph = { version = "0.2.32", default-features = false, features = ["std"] }
+fastrand = "2.5.0"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
+md-5 = "0.10"
+libc = "0.2"
+libloading = "0.9.0"
+log = "0.4.34"
+minifb = { version = "0.29.0", default-features = false, features = ["x11"], optional = true }
+rusqlite = { version = "0.41.1", features = ["bundled", "blob"] }
+ring = "0.17.14"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+q2-machines = { version = "0.1.0", path = "../machines" }
+q2-bt = { version = "0.1.0", path = "../bt", features = ["fake"] }
+# A2DP encoders: vendored C behind safe wrappers (crates/codecs/*/README.q2.md).
+q2-aac = { version = "0.1.0", path = "../codecs/q2-aac" }
+q2-aptx = { version = "0.1.0", path = "../codecs/q2-aptx" }
+q2-ldac = { version = "0.1.0", path = "../codecs/q2-ldac" }
+subsonic = { version = "0.1.0", path = "../subsonic" }
+symphonia = { version = "0.5", default-features = false, features = ["flac", "mp3", "aac", "isomp4", "alac", "vorbis", "ogg", "wav", "pcm"] }
+# The vendored MP3 decoder's own switches (scalar/MSA path, rig stage timers);
+# the decoder itself is reached through symphonia.
+symphonia-bundle-mp3 = { version = "=0.5.5", default-features = false, features = ["mp3"] }
+# The vendored FLAC and ALAC decoders' switches and rig stage timers
+# (symphonia_bundle_flac::q2, symphonia_codec_alac::q2).
+symphonia-bundle-flac = { version = "=0.5.5", default-features = false }
+symphonia-codec-alac = { version = "=0.5.5", default-features = false }
+# The vendored JPEG decoder's switches and self-check (zune_jpeg::q2); the
+# decoder itself is reached through image.
+zune-jpeg = "=0.5.15"
+toml = "1.1.8"
+tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net", "time", "sync", "process", "macros"] }
+
+[features]
+default = ["sim"]
+# The desktop simulator's window.
+sim = ["dep:minifb"]
+
+[dev-dependencies]
+subsonic = { version = "0.1.0", path = "../subsonic", features = ["scrobble-fixtures"] }
+fontdue = "0.9.5"
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+tokio = { version = "=1.54.1", default-features = false, features = ["test-util"] }
+
+[build-dependencies]
+cc = "1.10.0"

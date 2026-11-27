@@ -1,0 +1,104 @@
+diff -ruN a/src/flac.rs b/src/flac.rs
+--- a/src/flac.rs	2026-11-21 03:19:06.909107486 -0600
++++ b/src/flac.rs	2026-11-21 03:19:06.916457528 -0600
+@@ -50,8 +50,11 @@
+     let media_type_len = reader.read_be_u32()? as usize;
+ 
+     // Read the Media Type bytes
+-    let mut media_type_buf = vec![0u8; media_type_len];
+-    reader.read_buf_exact(&mut media_type_buf)?;
++    // [q2 patch] Bounded, and allocated as the bytes arrive.
++    if media_type_len as u64 > symphonia_core::io::Q2_MAX_TAG_BYTES {
++        return decode_error("meta (flac): picture mime-type too long");
++    }
++    let media_type_buf = reader.read_boxed_slice_exact(media_type_len)?;
+ 
+     // Convert Media Type bytes to an ASCII string. Non-printable ASCII characters are invalid.
+     let media_type = match printable_ascii_to_string(&media_type_buf) {
+@@ -63,8 +66,11 @@
+     let desc_len = reader.read_be_u32()? as usize;
+ 
+     // Read the description bytes.
+-    let mut desc_buf = vec![0u8; desc_len];
+-    reader.read_buf_exact(&mut desc_buf)?;
++    // [q2 patch] Bounded, and allocated as the bytes arrive.
++    if desc_len as u64 > symphonia_core::io::Q2_MAX_TAG_BYTES {
++        return decode_error("meta (flac): picture description too long");
++    }
++    let desc_buf = reader.read_boxed_slice_exact(desc_len)?;
+ 
+     let desc = String::from_utf8_lossy(&desc_buf);
+ 
+@@ -92,6 +98,11 @@
+ 
+     // Read the image data
+     let data_len = reader.read_be_u32()? as usize;
++    // [q2 patch] Pictures longer than the tag limit are skipped unread and not reported.
++    if data_len as u64 > symphonia_core::io::Q2_MAX_TAG_BYTES {
++        reader.ignore_bytes(data_len as u64)?;
++        return Ok(());
++    }
+     let data = reader.read_boxed_slice_exact(data_len)?;
+ 
+     metadata.add_visual(Visual {
+diff -ruN a/src/id3v2/frames.rs b/src/id3v2/frames.rs
+--- a/src/id3v2/frames.rs	2026-11-21 03:19:06.909465200 -0600
++++ b/src/id3v2/frames.rs	2026-11-21 03:19:06.916457528 -0600
+@@ -458,6 +458,12 @@
+         return invalid_data(&id);
+     }
+ 
++    // [q2 patch] Long frames (attached pictures, damaged sizes) are skipped unread.
++    if size > symphonia_core::io::Q2_MAX_TAG_BYTES {
++        reader.ignore_bytes(size)?;
++        return unsupported_frame(&id);
++    }
++
+     let data = reader.read_boxed_slice_exact(size as usize)?;
+ 
+     parser(&mut BufReader::new(&data), *std_key, as_ascii_str(&id))
+@@ -524,6 +530,12 @@
+         return invalid_data(&id);
+     }
+ 
++    // [q2 patch] Long frames (attached pictures, damaged sizes) are skipped unread.
++    if size > symphonia_core::io::Q2_MAX_TAG_BYTES {
++        reader.ignore_bytes(size)?;
++        return unsupported_frame(&id);
++    }
++
+     let data = reader.read_boxed_slice_exact(size as usize)?;
+ 
+     parser(&mut BufReader::new(&data), *std_key, as_ascii_str(&id))
+@@ -616,6 +628,12 @@
+     // can just get references to the decoded data buffer we create here.
+     //
+     // You win some, you lose some. :)
++    // [q2 patch] Long frames (attached pictures, damaged sizes) are skipped unread.
++    if size > symphonia_core::io::Q2_MAX_TAG_BYTES {
++        reader.ignore_bytes(size)?;
++        return unsupported_frame(&id);
++    }
++
+     let mut raw_data = reader.read_boxed_slice_exact(size as usize)?;
+ 
+     // The frame body is unsynchronised. Decode the unsynchronised data back to it's original form
+diff -ruN a/src/vorbis.rs b/src/vorbis.rs
+--- a/src/vorbis.rs	2026-11-21 03:19:06.909465200 -0600
++++ b/src/vorbis.rs	2026-11-21 03:19:06.916457528 -0600
+@@ -172,8 +172,13 @@
+         let comment_length = reader.read_u32()?;
+ 
+         // Read the comment string.
+-        let mut comment_bytes = vec![0; comment_length as usize];
+-        reader.read_buf_exact(&mut comment_bytes)?;
++        // [q2 patch] Long comments (base64 pictures, damaged lengths) are skipped unread;
++        // the others are allocated as their bytes arrive.
++        if u64::from(comment_length) > symphonia_core::io::Q2_MAX_TAG_BYTES {
++            reader.ignore_bytes(u64::from(comment_length))?;
++            continue;
++        }
++        let comment_bytes = reader.read_boxed_slice_exact(comment_length as usize)?;
+ 
+         // Parse the comment string into a Tag and insert it into the parsed tag list.
+         parse_comment(&String::from_utf8_lossy(&comment_bytes), metadata);

@@ -1,0 +1,9 @@
+[package]
+name = "q2-bt"
+version = "0.1.0"
+edition = "2024"
+description = "Bluetooth Classic host for the Q2: H5, HCI, L2CAP, AVDTP source, AVRCP target and an SBC encoder, without I/O"
+
+[features]
+# The in-process controller and headphones used by tests, the simulator and the emulator.
+fake = []

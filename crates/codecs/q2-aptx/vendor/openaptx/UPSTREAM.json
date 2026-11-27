@@ -1,0 +1,31 @@
+{
+  "name": "libopenaptx",
+  "url": "https://github.com/pali/libopenaptx",
+  "tag": "0.2.0",
+  "tag_object": "f3a8fdf167d28d0661387ff1e8e2b0b4105c88b3",
+  "commit": "2459ed4686eaef0a19dfa3f330a960813c5f60de",
+  "commit_date": "2020-04-11",
+  "license": "LGPL-2.1-or-later",
+  "archive_url": "https://github.com/pali/libopenaptx/archive/refs/tags/0.2.0.tar.gz",
+  "archive_sha256": "cca8b6d82d2256369b314855b3496ac2f0029adbc0adb66c770c0bf38c2c2cfc",
+  "date": "2026-11-21",
+  "files": {
+    "openaptx.c": {
+      "upstream_path": "openaptx.c",
+      "sha256": "2f8a23c77f7f333320c581b134fa9b679259075c5a307619452712b0720bd329"
+    },
+    "openaptx.h": {
+      "upstream_path": "openaptx.h",
+      "sha256": "c14acbe2304f94dcec4dbcfc5e44f2a476a77b076430dbfe20caf543090d6032"
+    },
+    "LICENSE": {
+      "upstream_path": "COPYING",
+      "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+    }
+  },
+  "not_vendored": ["Makefile", "README", "openaptxdec.c", "openaptxenc.c"],
+  "local_changes": [
+    "COPYING is stored as LICENSE; content unchanged.",
+    "No change to openaptx.c or openaptx.h."
+  ]
+}

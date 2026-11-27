@@ -1,0 +1,103 @@
+# Q2 Navidrome settings. Copy to config.toml in this folder and fill in
+# [server]; everything else can be changed on the Q2 (Settings).
+
+[server]
+# The address you open Navidrome at.
+url = "https://music.example.com"
+user = "me"
+# Sent only as a salted token. Or use an OpenSubsonic API key instead:
+password = ""
+api_key = ""
+
+# Optional audiobook/podcast server. Shares the global network transport.
+# Tailscale off uses system routing; on uses the same proxy as Navidrome.
+[audiobookshelf]
+url = ""
+token = ""
+
+[spoken]
+skip_seconds = 30
+skip_chapter = false
+
+[wifi]
+enabled = true
+
+# Networks to join, most preferred first. Networks joined on the Q2 are
+# added here.
+[[wifi.networks]]
+ssid = "Home"
+psk = "password"
+
+[tailscale]
+# Uses the Tailscale daemon the image ships (tailscale-rs by default).
+# Enable and sign in under Settings > Tailscale, then use your server's full
+# tailnet DNS name or IP.
+enabled = false
+
+[bluetooth]
+# Headphones over Bluetooth (SBC). Pair under Settings > Connections >
+# Bluetooth; paired devices are kept in /state/bluetooth/devices, not here.
+enabled = false
+# device = "/dev/ttyS0"      # the controller's UART; "fake" for the test controller
+# baud = 1500000             # UART rate after the controller's patch starts
+# flow_control = false       # RTS/CTS; needs the UART0 flow-control pins muxed
+# firmware_dir = "/state/bluetooth/firmware"   # rtl8733bs_fw and rtl8733bs_config
+# codec = "auto"             # auto, ldac, aptx-hd, aptx, aac or sbc; SBC is always the fallback
+# ldac_quality = "standard"  # high (990 kbit/s), standard (660) or mobile (330)
+
+[playback]
+# original, mp3-320, mp3-192 or mp3-128. Formats the Q2 can't decode
+# (Opus, WMA, APE, DSD) always come as MP3 320.
+stream_quality = "original"
+download_quality = "original"
+gapless = true
+# off, track or album.
+replay_gain = "off"
+scrobble = true
+volume = 50
+max_volume = 100
+
+[playback.eq]
+graphic_enabled = false
+# 31, 63, 125, 250, 500 Hz, 1, 2, 4, 8, 16 kHz; integer dB, -12 to +12.
+bands = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+headphone_enabled = false
+# Choose Headphones in Settings > Equalizer stores the AutoEQ profile here.
+
+[storage]
+# Songs kept from streaming, in MB; downloads don't count.
+stream_cache_mb = 4096
+# Space always left free on the card, in MB.
+reserve_mb = 512
+# Songs fetched ahead of the one playing.
+prefetch_songs = 2
+
+[display]
+# Gradual warm tint: 21:00–07:00, with one-hour evening/morning ramps.
+night_warmth = false
+# stars, hearts or both; centre cycles modes on Now Playing.
+rating_controls = "stars"
+brightness = 50
+# Seconds; 0 never.
+backlight_seconds = 30
+# classic (white, as the iPod classic) or dark.
+look = "classic"
+# The selection bar: blue, graphite, green, orange, pink, purple or red.
+accent = "blue"
+# The time in the title bar instead of the page's name.
+clock_in_title = false
+clock_24h = false
+# IANA name or POSIX TZ; the clock is UTC without it.
+timezone = ""
+
+[power]
+# Minutes idle (screen off, nothing playing) before sleeping; 0 never.
+sleep_minutes = 10
+# Turn Wi-Fi off with the screen off while enough of the queue is on the
+# card, and back on before it runs out. With fetch by duration
+# ([storage] fetch_minutes) it dozes once a fetch ends.
+radio_doze = true
+# Also turn Wi-Fi off while paused, once the screen has been off and
+# untouched this many minutes, when the queue's next minutes are on the
+# card. Lighting the screen turns it back on. 0 keeps Wi-Fi up while paused.
+doze_paused_minutes = 1

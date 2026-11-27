@@ -1,0 +1,8 @@
+[package]
+name = "q2-machines"
+version = "0.1.0"
+edition = "2024"
+description = "The player's state machines as pure transition functions, with Kani proofs and exhaustive model checks"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
