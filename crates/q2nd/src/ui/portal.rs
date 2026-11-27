@@ -100,6 +100,8 @@ pub struct Portal {
     simulated: bool,
     pairing: bool,
     awaiting_prepared_prompt: bool,
+    /// The config.toml account for the running sign-in, until the helper asks.
+    saved_reply: Option<(Zeroizing<String>, Zeroizing<String>)>,
 }
 
 impl Portal {
@@ -118,6 +120,7 @@ impl Portal {
             simulated,
             pairing: false,
             awaiting_prepared_prompt: false,
+            saved_reply: None,
         }
     }
 
@@ -161,6 +164,7 @@ impl Portal {
         self.reply.take();
         self.pairing = false;
         self.awaiting_prepared_prompt = false;
+        self.saved_reply = None;
     }
 
     pub fn cancel(&mut self) {
@@ -184,7 +188,7 @@ impl Portal {
 
     fn start(&mut self, op: &'static str) {
         self.stop("superseded");
-        let wire_op = if op == "login_prepared" {
+        let wire_op = if op == "login_prepared" || op == "login_saved" {
             "begin_login"
         } else {
             op
@@ -212,11 +216,11 @@ impl Portal {
         if let Some(previous) = &self.attempt {
             command["previous_attempt"] = json!(previous.id);
         }
-        if op == "login_prepared" || op == "begin_login" {
-            command["input_route"] = json!(if op == "login_prepared" {
-                "prepared"
-            } else {
-                "wheel"
+        if matches!(op, "login_prepared" | "login_saved" | "begin_login") {
+            command["input_route"] = json!(match op {
+                "login_prepared" => "prepared",
+                "login_saved" => "saved",
+                _ => "wheel",
             });
         }
         let attempt = q2_portal_trace::new_id().map(|id| {
@@ -233,7 +237,7 @@ impl Portal {
         self.task = Some(crate::rt::io().spawn(async move {
             let timeout = Duration::from_secs(match op {
                 "pair" => 205,
-                "login_prepared" => 110,
+                "login_prepared" | "login_saved" => 110,
                 "guest" => 170,       // Allow time to confirm the guest offer.
                 "begin_login" => 410, // Allow five minutes of wheel entry plus provider requests.
                 _ => 15,
@@ -325,6 +329,29 @@ impl Portal {
         }
     }
 
+    /// Sign in with the account from config.toml. The settings keep it; this
+    /// attempt holds a copy only until the helper asks for it.
+    pub fn login_saved(&mut self, user: Zeroizing<String>, password: Zeroizing<String>) {
+        if self.state != State::Delta {
+            return;
+        }
+        self.start("login_saved");
+        if self.state == State::Working {
+            self.saved_reply = Some((user, password));
+        }
+    }
+
+    fn answer_saved_prompt(&mut self) {
+        if let (Some((user, password)), Some(ready)) = (self.saved_reply.take(), self.reply.take()) {
+            if ready.send(Reply::Credentials(user, password)).is_ok() {
+                self.state = State::Working;
+                return;
+            }
+        }
+        self.stop("cancelled");
+        self.state = State::Failed("Wi-Fi sign-in ended. Try again.".into());
+    }
+
     fn answer_prepared_prompt(&mut self) {
         // Keep the original expiry and account if the helper has already left.
         // Once the helper accepts the reply it owns the only sign-in attempt.
@@ -382,11 +409,15 @@ impl Portal {
                 self.awaiting_prepared_prompt = false;
                 self.answer_prepared_prompt();
             }
+            Event::State(State::Credentials) if self.saved_reply.is_some() => {
+                self.answer_saved_prompt();
+            }
             Event::State(state) => {
                 if self.awaiting_prepared_prompt && state == State::Online {
                     self.forget_prepared();
                 }
                 self.awaiting_prepared_prompt = false;
+                self.saved_reply = None;
                 if !matches!(state, State::Pairing { .. }) {
                     self.pairing = false;
                 }
@@ -630,6 +661,47 @@ mod tests {
         assert!(!portal.update(attempt, Event::State(State::Credentials)));
         submit(&mut portal);
         assert!(portal.state == State::Idle);
+    }
+
+    #[test]
+    fn saved_account_answers_only_its_own_prompt_once() {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut portal = Portal::new(tx, true);
+        let generated = || (Zeroizing::new("generated-user".to_owned()), Zeroizing::new("generated-pass".to_owned()));
+        let (user, password) = generated();
+        portal.login_saved(user, password);
+        assert!(portal.state == State::Idle && portal.saved_reply.is_none(), "only from the Delta choices");
+        portal.observe(&WifiState {
+            enabled: true,
+            ssid: Some("DeltaWiFi.com".into()),
+            ip: Some("192.0.2.1".into()),
+            bssid: Some("02:00:00:00:00:01".into()),
+            ..Default::default()
+        });
+        portal.state = State::Delta;
+        let (user, password) = generated();
+        portal.login_saved(user, password);
+        let attempt = portal.generation;
+        assert!(portal.state == State::Working);
+        let (reply, mut waiting) = oneshot::channel();
+        portal.reply = Some(reply);
+        assert!(portal.update(attempt, Event::State(State::Credentials)));
+        assert!(portal.state == State::Working);
+        assert!(
+            matches!(waiting.try_recv(), Ok(Reply::Credentials(user, password))
+            if user.as_str() == "generated-user" && password.as_str() == "generated-pass")
+        );
+        assert!(portal.saved_reply.is_none());
+        // A second prompt in the same attempt is the wheel's, not the saved account's.
+        assert!(portal.update(attempt, Event::State(State::Credentials)));
+        assert!(portal.state == State::Credentials);
+
+        // Cancelling before the prompt drops the copy.
+        portal.state = State::Delta;
+        let (user, password) = generated();
+        portal.login_saved(user, password);
+        portal.cancel();
+        assert!(portal.saved_reply.is_none() && portal.state == State::Idle);
     }
 
     #[test]

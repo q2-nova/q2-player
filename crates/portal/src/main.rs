@@ -107,6 +107,7 @@ fn execute(stream: &mut impl BufRead) -> Result<(), String> {
     let input_route = match command["input_route"].as_str() {
         Some("prepared") => "prepared",
         Some("wheel") => "wheel",
+        Some("saved") => "saved",
         _ => "unspecified",
     };
     let previous = command["previous_attempt"]

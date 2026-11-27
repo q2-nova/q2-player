@@ -17,6 +17,7 @@ const CLEAR_PREPARED: u32 = 6;
 const DONE: u32 = 7;
 const PHONE_ENTRY: u32 = 8;
 const AGREE: u32 = 9;
+const USE_SAVED: u32 = 10;
 
 enum Entry {
     Account(TextEntry),
@@ -180,7 +181,7 @@ impl PortalScreen {
                 self.wheel_login = false;
             }
         }
-        let rows = self.rows(ctx.portal.has_prepared());
+        let rows = self.rows(ctx.portal.has_prepared(), saved_account(ctx).is_some());
         let first_action = rows
             .iter()
             .position(|row| !matches!(row.action, RowAction::None));
@@ -196,7 +197,7 @@ impl PortalScreen {
         }
     }
 
-    fn rows(&self, prepared: bool) -> Vec<Row> {
+    fn rows(&self, prepared: bool, saved: bool) -> Vec<Row> {
         match (&self.state, self.phone) {
             (State::Idle, true) => vec![
                 Row::new("Start Phone Setup", RowAction::Cmd(START_PHONE))
@@ -223,7 +224,12 @@ impl PortalScreen {
                         "Use Prepared Account",
                         RowAction::Cmd(USE_PREPARED),
                     ));
-                } else {
+                }
+                if saved {
+                    rows.push(Row::new("Use Saved Account", RowAction::Cmd(USE_SAVED))
+                        .detail("From config.toml on the card"));
+                }
+                if !prepared {
                     rows.push(Row::screen("Enter Details on Phone", PHONE_ENTRY));
                 }
                 rows.push(Row::screen("Enter SkyMiles Details", ACCOUNT).detail("Use the wheel"));
@@ -451,6 +457,12 @@ impl Screen for PortalScreen {
                             ctx.portal.login_prepared();
                         }
                     }
+                    Some(RowAction::Cmd(USE_SAVED)) => {
+                        ctx.portal.observe(&ctx.net.state());
+                        if let (State::Delta, Some((user, password))) = (&ctx.portal.state, saved_account(ctx)) {
+                            ctx.portal.login_saved(user, password);
+                        }
+                    }
                     Some(RowAction::Cmd(PHONE_ENTRY)) => {
                         self.check_on_enter = true;
                         return Action::Push(Box::new(Self::phone()));
@@ -507,4 +519,9 @@ impl Screen for PortalScreen {
             _ => true,
         }
     }
+}
+
+/// The Delta account in config.toml's `[portal.delta]`, when complete.
+fn saved_account(ctx: &Ctx) -> Option<(zeroize::Zeroizing<String>, zeroize::Zeroizing<String>)> {
+    ctx.config.portal.delta.as_ref().and_then(|account| account.sign_in())
 }

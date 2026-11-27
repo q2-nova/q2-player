@@ -2,6 +2,7 @@
 //! Settings, kept as TOML on the card (`Q2Navidrome/config.toml`) so the
 //! server can be set up from a computer, and rewritten when changed on the Q2.
 
+mod keep;
 mod save;
 pub use save::Save;
 pub mod telemetry;
@@ -31,6 +32,69 @@ pub struct Config {
     /// Written only when something in it is set.
     #[serde(skip_serializing_if = "Diagnostics::is_default")]
     pub diagnostics: Diagnostics,
+    /// Wi-Fi sign-in details typed into the card file by hand. Not shown in
+    /// Settings. Never written from this value: a save keeps the card file's
+    /// own `[portal]` text (config/keep.rs), and the internal copy omits it.
+    #[serde(skip_serializing)]
+    pub portal: PortalSettings,
+}
+
+/// `[portal]`: provider accounts for Wi-Fi sign-in. Unknown keys are kept so
+/// a save from Settings rewrites the table as it was read.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PortalSettings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delta: Option<DeltaAccount>,
+    #[serde(flatten)]
+    pub other: toml::Table,
+}
+
+/// `[portal.delta]`: `username` or `skymiles_number` (Delta accepts either),
+/// and `password`. Values stay as written, string or number, so a save keeps
+/// them byte for byte in meaning.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DeltaAccount {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<toml::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skymiles_number: Option<toml::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<toml::Value>,
+    #[serde(flatten)]
+    pub other: toml::Table,
+}
+
+impl DeltaAccount {
+    /// The account name and password for sign-in, when both are present.
+    pub fn sign_in(&self) -> Option<(zeroize::Zeroizing<String>, zeroize::Zeroizing<String>)> {
+        fn text(value: &Option<toml::Value>) -> Option<String> {
+            match value {
+                Some(toml::Value::String(s)) if !s.is_empty() => Some(s.clone()),
+                Some(toml::Value::Integer(n)) => Some(n.to_string()),
+                _ => None,
+            }
+        }
+        let user = text(&self.username).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
+            .or_else(|| text(&self.skymiles_number).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()))?;
+        let password = text(&self.password)?;
+        Some((zeroize::Zeroizing::new(user), zeroize::Zeroizing::new(password)))
+    }
+}
+
+// Account values never reach logs or panic messages.
+impl std::fmt::Debug for PortalSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PortalSettings").field("delta", &self.delta)
+            .field("other_keys", &self.other.len()).finish()
+    }
+}
+
+impl std::fmt::Debug for DeltaAccount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeltaAccount").field("configured", &self.sign_in().is_some()).finish_non_exhaustive()
+    }
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -509,8 +573,14 @@ impl Config {
 
     /// Writes the file through a temporary file and a rename, so a power
     /// loss leaves the old or the new settings, never half of them.
+    /// Tables the typed settings do not model stay as the replaced file had them.
     pub fn save(&self, blocking: &crate::rt::Blocking, path: &Path) -> std::io::Result<()> {
-        write_atomic(blocking, path, &self.serialized()?)
+        write_atomic(blocking, path, &self.serialized_over(read_file(blocking, path).ok().as_deref())?)
+    }
+
+    /// The typed settings, then the unmodeled keys of `previous`.
+    fn serialized_over(&self, previous: Option<&[u8]>) -> std::io::Result<Vec<u8>> {
+        Ok(keep::with_unmodeled(self.serialized()?, previous))
     }
 
     fn serialized(&self) -> std::io::Result<Vec<u8>> {
@@ -740,6 +810,8 @@ impl Paths {
                     return (stored.unwrap_or_default(), None);
                 };
                 let unchanged = read_file(blocking, &record).is_ok_and(|seen| seen == fingerprint_text(&fingerprint).as_bytes());
+                // The internal copy never holds `[portal]`; the card's is current.
+                let stored = stored.map(|mut current| { current.portal = card.portal.clone(); current });
                 match stored {
                     // The card is as this player left it: settings saved
                     // without the card catch it up.
@@ -779,7 +851,8 @@ impl Paths {
 
     /// Writes the settings to the card, then the record of what was written.
     fn write_card(&self, blocking: &crate::rt::Blocking, record: &Path, config: &Config) -> Option<[u8; 16]> {
-        let bytes = config.serialized().ok()?;
+        let previous = read_file(blocking, &self.config_path).ok();
+        let bytes = config.serialized_over(previous.as_deref()).ok()?;
         write_atomic(blocking, &self.config_path, &bytes).ok()?;
         let fingerprint = config_fingerprint(&bytes);
         if write_atomic(blocking, record, fingerprint_text(&fingerprint).as_bytes()).is_err() {
@@ -1182,6 +1255,38 @@ session = "generated-session"
         std::fs::remove_file(swapped.config()).unwrap();
         assert_eq!(restart(&swapped, true).load_config(&blocking()), next);
         assert_eq!(card(&swapped), next);
+    }
+
+    #[test]
+    fn installed_saves_keep_the_card_portal_table_and_never_copy_it_to_nand() {
+        let paths = installed_fixture("portal-table");
+        // Generated account; a hand-written table the player does not model.
+        let portal = "# typed on the host\n[portal.delta]\nskymiles_number = 9000000004\npassword = \"generated-only\"\n";
+        let hand = format!("[playback]\nvolume = 20\n\n{portal}\n[later]\nkey = 'x'\n");
+        std::fs::write(paths.config(), &hand).unwrap();
+        let loaded = paths.load_config(&blocking());
+        assert!(loaded.portal.delta.as_ref().unwrap().sign_in().is_some());
+        assert_eq!(std::fs::read_to_string(paths.config()).unwrap(), hand, "starting does not rewrite the card");
+        let internal_text = || std::fs::read_to_string(paths.internal.as_ref().unwrap()).unwrap();
+        assert!(!internal_text().contains("portal") && !internal_text().contains("generated-only"));
+        paths.save_config(&volume(&loaded, 21)).unwrap();
+        let saved = std::fs::read_to_string(paths.config()).unwrap();
+        assert!(saved.contains(portal) && saved.contains("[later]\nkey = 'x'\n"), "{saved}");
+        assert!(!internal_text().contains("generated-only"));
+        // The next start uses NAND for the modeled settings and the card's account.
+        let next = restart(&paths, true).load_config(&blocking());
+        assert_eq!(next.playback.volume, 21);
+        assert_eq!(next.portal, loaded.portal);
+        assert_eq!(std::fs::read_to_string(paths.config()).unwrap(), saved);
+        // Saved without the card, then the card returns unchanged: the catch-up
+        // write keeps the account too.
+        let removed = restart(&paths, false);
+        let away = removed.load_config(&blocking());
+        assert!(away.portal.delta.is_none(), "no account without the card");
+        removed.save_config(&volume(&away, 22)).unwrap();
+        let returned = restart(&paths, true).load_config(&blocking());
+        assert_eq!((returned.playback.volume, &returned.portal), (22, &loaded.portal));
+        assert!(std::fs::read_to_string(paths.config()).unwrap().contains(portal));
     }
 
     #[test]
