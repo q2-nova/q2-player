@@ -33,6 +33,32 @@ build/first-listen-target/debug/q2nd --sim --data build/first-listen/first/card
 Press Return at **Navidrome Server**, then open **Books → On This Card**.
 Select **Generated First Listen** and press Center on **Book Info**.
 
+## Spoken journey against Audiobookshelf
+
+```sh
+python3 tests/e2e/audiobookshelf-server.py --out build/audiobookshelf
+```
+
+The command checks the player's books and podcasts against the official
+Audiobookshelf image, pinned by digest. It needs rootless Podman and FFmpeg
+with its AAC and MP3 encoders, builds the native player like first listen
+(`--player` reuses a binary) and takes under a minute after the build. It
+generates a two-file book, a podcast feed with one episode and two covers,
+starts the server on its own internal Podman network with only that data,
+and creates the account, API key and both libraries. The server reaches no
+host or internet address; the feed is served inside its container.
+
+The player's `q2nd --bench` `spoken-server` check then lists and browses
+both libraries, streams every file, saves and reads back progress,
+downloads each item, and reopens it offline with its book information and
+covers at 50, 150 and 320 px, all through a SOCKS proxy that admits only
+the server's port. The script checks the narrator, series and description
+the server returns and that the server's pages carry numeric `page` and
+`limit`. Results are in `build/audiobookshelf/result.json`. The run removes
+only the container and network it created, identified by a random label.
+`--qemu-user QEMU --sysroot SYSROOT --player TARGET_Q2ND` runs a MIPS
+build under the user-mode emulator instead.
+
 ## End-to-end runs against a local Navidrome
 
 ```sh

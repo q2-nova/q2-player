@@ -10,7 +10,9 @@ on:
       - 'rust-toolchain.toml'
       - 'assets/**'
       - 'crates/**'
+      - 'tests/e2e/audiobookshelf-server.py'
       - 'tests/e2e/first-listen.py'
+      - 'tests/ui/ux_fault_fixture.py'
 
 permissions:
   contents: read
@@ -58,6 +60,48 @@ jobs:
         if: failure()
         run: |
           for log in build/first-listen/build.log build/first-listen/ffmpeg.log build/first-listen/{first,offline}/player.log; do
+            if test -f "$log"; then
+              tail -n 80 "$log"
+            fi
+          done
+
+  audiobookshelf:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Spoken journey against the official Audiobookshelf image
+        env:
+          CARGO_BUILD_JOBS: '2'
+        run: |
+          mkdir -p build/ci-cargo-home
+          CARGO_HOME="$PWD/build/ci-cargo-home" python3 tests/e2e/audiobookshelf-server.py --out build/audiobookshelf
+      - name: Summarize the spoken journey
+        run: |
+          python3 - <<'PYTHON' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("build/audiobookshelf/result.json").read_text())
+          print(f"## Audiobookshelf {result['server']['version']}")
+          print()
+          print("| Item | Files | Chapters | Offline reopen | Covers |")
+          print("| --- | ---: | ---: | --- | --- |")
+          for outcome in result["result"]["outcomes"]:
+              kind = "Podcast episode" if outcome["podcast"] else "Book"
+              sizes = ", ".join(map(str, outcome["offline_cover_sizes"]))
+              print(f"| {kind} | {outcome['physical_files']} | {outcome['chapters']} | {outcome['reopened_offline']} | {sizes} |")
+          PYTHON
+      - name: Show spoken journey diagnostics
+        if: failure()
+        run: |
+          for log in build/audiobookshelf/build.log build/audiobookshelf/ffmpeg.log build/audiobookshelf/player.log build/audiobookshelf/server.log; do
             if test -f "$log"; then
               tail -n 80 "$log"
             fi
