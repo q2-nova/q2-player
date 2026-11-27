@@ -58,8 +58,11 @@ revision. It includes the static libopenaptx notice, license and
 
 ### Prepare the archive for physical qualification
 
-Use the tagged OS checkout and the resolved component lock from the admitted
-release assets. Compose the keyless normal installed image with the tagged OS
+These commands require a stock-capable q2-os tag that includes
+`os/compose_stock.py` and publishes the matching stock inputs. The OS tag
+in the current `release-lock.json` supplies the emulator candidate path.
+Once a stock-capable OS tag is available, use its checkout and the resolved
+component lock from the admitted release assets. Compose the keyless normal installed image with the tagged OS
 stock composer and the paired player, portal, and daemon. The stock packer
 checks the normal service hook, release metadata, executable hashes, and
 keyless root and rescue contents before using the stock update format.
