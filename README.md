@@ -37,3 +37,27 @@ python3 tools/verify-package.py boot --os-repo "$OS" --package build/emulator-pa
 ```
 
 The pack step checks both filesystems for SSH keys and verifies the installed player, portal and daemon against their build records. The boot step reads the kernel and root filesystem from that exact archive, creates disposable NAND and userdata, and checks the serial console for a running player. This package is for QEMU only. Physical first install and recovery need separate qualification.
+
+## Downloading build tools
+
+For a Linux x86-64 device build, use Python 3.11+ and the GitHub CLI. When the
+first SDK and compiler releases pass qualification, the player will select them
+in `build-tools.lock.json`. Until then use the source build above.
+
+```sh
+python3 tools/fetch-build-tools.py --out build/downloads
+```
+
+The command reads the release tags, downloads the named files into `sdk/` and
+`compiler/`, and checks every SHA-256. Repeating it with those files present
+verifies them offline. A failed download leaves the requested directory
+available for a retry. Use the producer instructions to unpack and relocate
+each bundle. Private component releases require GitHub CLI read access.
+
+The lock has `format` set to `1` and a `tools` object with `sdk` and `compiler`
+entries. Each specifies a GitHub `repository`, exact `tag`, `files` mapping
+asset names to SHA-256 values, and `sources` mapping component names to commits
+from `component-lock.json`. The SDK identifies `q2-os` and `buildroot`. The
+compiler identifies `q2-toolchain`, `llvm-project` and `rust`. The release tag
+must resolve to the producer commit. Include every archive or archive part
+required for that tool. A player fork can keep using these same releases.
