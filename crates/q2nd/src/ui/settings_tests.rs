@@ -420,7 +420,7 @@ fn system_menu_ends_at_date_and_time_then_about() {
     page(&mut app, Page::System);
     step(&mut app, Event::Scroll(99));
     step(&mut app, Event::Center);
-    assert_eq!(title(&app), "About", "Product feedback, 2026-11-22: About under System");
+    assert_eq!(title(&app), "About", "About is the last row under System");
     step(&mut app, Event::Back);
     step(&mut app, Event::Scroll(-1));
     step(&mut app, Event::Center);

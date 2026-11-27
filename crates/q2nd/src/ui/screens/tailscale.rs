@@ -17,7 +17,7 @@ impl Tailscale {
             if !s.address.is_empty() { rows.push(Row::new("Tailscale Address", RowAction::None).detail(s.address)); }
             rows.push(Row::screen("Sign In", 2).detail("Approve on your phone or computer"));
             if !s.health.is_empty() { rows.push(Row::screen("Connection Details", 3).detail(s.health)); }
-            // The daemon is the image's (Product feedback, 2026-11-22): no choice here.
+            // The daemon is the image's: no choice here.
             rows.push(Row::screen("Forget This Device", 5).detail("Sign out; signing in again needs approval"));
         }
         rows

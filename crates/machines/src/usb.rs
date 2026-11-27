@@ -27,7 +27,7 @@ pub enum Usb {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(kani, derive(kani::Arbitrary))]
 pub enum Event {
-    /// The owner chose USB Drive.
+    /// The listener chose USB Drive.
     Start {
         /// The helper is installed and a computer has configured the port.
         available: bool,

@@ -102,7 +102,7 @@ async fn migrate_store(weak: &Weak<Library>, store: Store, pacing: Pacing) -> Op
             return Some(total);
         }
         // Shard directories first, paced like the moves: each new exFAT
-        // directory writes a whole cluster (256 KiB on the owner's card).
+        // directory writes a whole cluster (256 KiB on a measured card).
         let shards: Vec<String> = shard::shards_of(&names).into_iter().filter(|name| prepared.insert(name.clone())).collect();
         for group in shards.chunks(pacing.batch.max(1)) {
             tokio::time::sleep(pacing.pause).await;

@@ -384,7 +384,7 @@ struct Shared {
     slots: [Slot; 4],
     /// Boot second (+1) of the last underrun report; 0 none.
     underrun_s: AtomicU32,
-    // Single player writer; copied into an owner report even after heavy wheel input.
+    // Single player writer; copied into a problem report even after heavy wheel input.
     analog_version: AtomicU32,
     analog_at: AtomicU32,
     analog_value: AtomicU32,

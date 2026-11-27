@@ -1,7 +1,6 @@
 //! Bluetooth audio numbers carried by UX reports (`crate::bluetooth`
 //! publishes them; [`super::send`] reads them). Numbers and fixed codes,
-//! plus the connected headphones' advertised name, which the owner asked for
-//! (Product feedback, 2026-11-22; docs/telemetry.md). Never an address. 32-bit
+//! plus the connected headphones' advertised name. Never an address. 32-bit
 //! atomics only, the name's bytes included: a report may see one torn update.
 use std::sync::atomic::{AtomicU32, Ordering};
 

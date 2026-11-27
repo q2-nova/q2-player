@@ -5716,10 +5716,9 @@ mod tests {
         assert!(e.sink.is_some() && !e.sink.as_ref().unwrap().pause_transfer_unverified());
     }
 
-    /// The decided XRUN contract (Product feedback, 2026-11-22): on the internal codec
-    /// an underrun leaves nothing unheard, so the retained-queue pause that
-    /// failed on V0.128 succeeds, the cached song is not skipped, and the
-    /// idle deadline parks and powers the DAC down.
+    /// The XRUN contract: on the internal codec an underrun leaves nothing
+    /// unheard, so the retained-queue pause succeeds, the cached song is not
+    /// skipped, and the idle deadline parks and powers the DAC down.
     #[test]
     fn internal_codec_xrun_pause_is_verified_and_parks_at_the_deadline() {
         let blocking = crate::rt::Blocking::dedicated_thread();

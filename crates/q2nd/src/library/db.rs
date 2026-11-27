@@ -1963,7 +1963,7 @@ mod tests {
     /// A page and its ETag are one row: a first store is one row change, an
     /// unchanged one none, and the page still reads as a page. (Two rows, the
     /// first form, put 2.5 times the WAL bytes of the old sync through a full
-    /// sync of the owner's library: 174 MB against 70.)
+    /// sync of a large library: 174 MB against 70.)
     #[test]
     fn a_page_and_its_etag_are_one_row() {
         let b = crate::rt::Blocking::dedicated_thread();

@@ -1,19 +1,18 @@
-//! Wi-Fi doze while cached songs play (POWER-006, the original product "buffer a few songs
-//! and then turn off Wi-Fi"). With the screen off and enough complete on-card
-//! audio queued, the radio goes down until that audio runs low or the owner
-//! needs the network; the prefetch worker then refills while it is up.
+//! Wi-Fi doze while cached songs play (POWER-006). With the screen off and
+//! enough complete on-card audio queued, the radio goes down until that audio
+//! runs low or the listener needs the network; the prefetch worker then
+//! refills while it is up.
 //!
-//! Product feedback (2026-11-08): power the radio down while at least the next half
-//! hour of the queue is playable offline, and power it up for the owner or
-//! when more items need caching. A reconnect costs 9–52 J against a 5–16 mW
+//! The radio is down while at least the next half hour of the queue is
+//! playable offline, and up for the listener or when more items need
+//! caching. A reconnect costs 9–52 J against a 5–16 mW
 //! saving (docs/validation/radio-doze.md), so a doze must be long: the
 //! threshold is 30 min of complete on-card audio, and the wake margin leaves
 //! time to reconnect and download the next song before the local run ends.
 //!
-//! Product feedback (2026-11-22): "We should definitely doze the radio while paused,
-//! but only while paused and screen off idle. If the screen is on, the user
-//! may be browsing for new things to play." A pause dozes the radio once the
-//! screen has been dark, untouched, for `power.doze_paused_minutes`
+//! A pause dozes the radio too, but only with the screen off and idle: with
+//! the screen on, the listener may be browsing for something to play. The
+//! radio dozes once the screen has been dark, untouched, for `power.doze_paused_minutes`
 //! ([`PAUSED_DELAY_MINUTES`] by default); lighting the screen wakes it.
 //!
 //! The policy itself is the pure machine `q2_machines::doze` (proved there;

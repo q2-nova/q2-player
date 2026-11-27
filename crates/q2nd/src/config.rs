@@ -157,10 +157,10 @@ pub struct Tailscale {
     pub enabled: bool,
 }
 
-/// `[tailscale] backend` chose the daemon in app 0.127–0.130. Product feedback,
-/// 2026-11-22: the player runs the daemon the image ships. A file that still
-/// has the key parses as before without it; the key is logged once per
-/// process, not as an error, and the next save drops it.
+/// `[tailscale] backend` chose the daemon in app 0.127–0.130. The player runs
+/// the daemon the image ships. A file that still has the key parses as before
+/// without it; the key is logged once per process, not as an error, and the
+/// next save drops it.
 static LEGACY_BACKEND_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn has_legacy_tailscale_backend(user: &toml::Table) -> bool {
@@ -307,8 +307,8 @@ impl Default for Playback {
 impl Playback {
     /// The chosen Headphone Power. A file from before the setting keeps an
     /// explicit High gain; the old Low default becomes the new default,
-    /// Efficient (Product feedback, 2026-11-22: analog defaults may change if the
-    /// owner can change them back).
+    /// Efficient. The default can change because the listener can set it
+    /// back in Settings.
     pub fn headphone_power(&self) -> HeadphonePower {
         self.headphone_power.unwrap_or(if self.high_gain { HeadphonePower::High } else { HeadphonePower::default() })
     }
@@ -339,9 +339,7 @@ pub struct Storage {
     /// Fetch ahead by duration instead (0: by `fetch_batch`): once less than
     /// `fetch_low_minutes` of cached songs follow the playing one, fetch the
     /// next songs until this many minutes are cached. With `power.radio_doze`
-    /// the radio dozes as soon as that fetch ends and wakes to fetch more
-    /// (Product feedback, 2026-11-11: "Fetch x min of songs and then immediately doze
-    /// until we need to fetch more").
+    /// the radio dozes as soon as that fetch ends and wakes to fetch more.
     pub fetch_minutes: u32,
     pub fetch_low_minutes: u32,
 }
@@ -405,10 +403,9 @@ pub struct Power {
     /// Minutes idle and not playing before sleeping; 0 never.
     pub sleep_minutes: u32,
     /// Turn Wi-Fi off while enough cached songs are queued and the screen is
-    /// off, and back on before they run out (ui/doze.rs). On since the original product
-    /// 2026-11-12 decision: with fetch by duration (`storage.fetch_minutes`)
-    /// it dozes as soon as a fetch ends. The earlier stream03 net-saving claim
-    /// failed strict qualification; see docs/validation/doze-qualified-pairs.md.
+    /// off, and back on before they run out (ui/doze.rs). On by default: with
+    /// fetch by duration (`storage.fetch_minutes`) it dozes as soon as a fetch
+    /// ends.
     pub radio_doze: bool,
     /// Minutes of complete cached audio ahead before the radio may doze, and
     /// the margin left when it wakes (ui/doze.rs; the wake margin must be
@@ -418,8 +415,8 @@ pub struct Power {
     /// Also doze while paused, once the screen has been off and untouched
     /// for this many minutes, when at least the wake margin of the queue is
     /// on the card (ui/doze.rs). Lighting the screen wakes the radio. 0 keeps
-    /// the radio up while paused. Default 1 (Product feedback, 2026-11-22; the delay's
-    /// reasons are at `ui::doze::PAUSED_DELAY_MINUTES`).
+    /// the radio up while paused. Default 1 (the delay's reasons are at
+    /// `ui::doze::PAUSED_DELAY_MINUTES`).
     pub doze_paused_minutes: u32,
 }
 
@@ -768,8 +765,8 @@ impl Paths {
         self.internal.as_ref().map(|internal| internal.with_file_name("config.card-sync"))
     }
 
-    /// Installed settings live on NAND and on the card (Product feedback, 2026-11-18).
-    /// The NAND copy is always current; see docs/mainline-installed-services.md.
+    /// Installed settings live on NAND and on the card. The NAND copy is
+    /// always current.
     pub fn load_config(&self, blocking: &crate::rt::Blocking) -> Config {
         let Some(internal) = &self.internal else {
             let config = Config::load(blocking, &self.config_path);

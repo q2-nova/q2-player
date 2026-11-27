@@ -3,7 +3,7 @@
 //! Left alone, wpa_supplicant rescans every few seconds for as long as no
 //! saved network is in range, which on a portable player is most of the time
 //! away from home; the 8733bs build has no scheduled-scan (PNO) offload to do
-//! it cheaply. Product feedback (2026-11-08): scan when the screen wakes, then at a
+//! it cheaply. The player scans when the screen wakes, then at a
 //! foreground and a background rate, backing off from about 30 s–1 min to
 //! about 10 min with the screen on and 30 min with it off.
 //!

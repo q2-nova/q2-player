@@ -11,11 +11,9 @@ pub enum Kind { Sbc, Aac, AptX, AptXHd, Ldac }
 impl Kind {
     /// Every codec, by nominal quality.
     pub const BY_QUALITY: [Kind; 5] = [Kind::Ldac, Kind::AptXHd, Kind::AptX, Kind::Aac, Kind::Sbc];
-    /// What "Automatic" prefers: the order of nominal quality. Product feedback, 2026-11-22 (V0.133): "Auto
-    /// connection mode should select the highest quality option by default ... I had to select AAC
-    /// and reconnect to get AAC on my airpod pro 2s." This replaces the earlier agent choice of SBC
-    /// before AAC (the vendored AAC encoder measured below SBC at bitpool 53,
-    /// crates/codecs/q2-aac/README.q2.md).
+    /// What "Automatic" prefers: the order of nominal quality, so headphones with AAC and SBC
+    /// connect with AAC without a manual choice. AAC stays ahead of SBC although the vendored AAC
+    /// encoder measured below SBC at bitpool 53 (crates/codecs/q2-aac/README.q2.md).
     pub const AUTOMATIC: [Kind; 5] = Kind::BY_QUALITY;
     pub fn name(self) -> &'static str { match self { Kind::Sbc => "SBC", Kind::Aac => "AAC", Kind::AptX => "aptX", Kind::AptXHd => "aptX HD", Kind::Ldac => "LDAC" } }
     /// Our stream endpoint for this codec.

@@ -314,7 +314,7 @@ fn the_scan_marker_and_catalog_belong_to_the_account() {
 /// Heap bound for a large library: a catalog build parses each 500-album
 /// page as it arrives and stores it before the next, so its Rust heap peak
 /// is one page whatever the library holds. 20,000 albums is about 200,000
-/// songs at ten a album; the owner's library is 60,130 songs. SQLite's own
+/// songs at ten a album, three times a 60,130-song library. SQLite's own
 /// cache (C allocations, not counted here) is capped at 512 KiB.
 #[test]
 fn catalog_build_heap_is_one_page_whatever_the_library_size() {

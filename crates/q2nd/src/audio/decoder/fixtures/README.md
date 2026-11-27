@@ -1,8 +1,8 @@
 # Decoder fixtures
 
 Input of `audio/decoder/corrupt_tests.rs`. Stereo at 44.1 kHz with the
-right channel at minus half the left, no tags. Generated on 2026-11-21
-with ffmpeg 8.1.3 (`-map_metadata -1 -fflags +bitexact -flags:a +bitexact`).
+right channel at minus half the left, no tags. Generated with ffmpeg
+8.1.3 (`-map_metadata -1 -fflags +bitexact -flags:a +bitexact`).
 The lossy files hold a 440 Hz sine mixed with noise at 0.05; the lossless
 files hold 440 Hz and 3111 Hz sines, which keeps them small.
 

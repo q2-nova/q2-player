@@ -381,7 +381,7 @@ def online(s):
             s.add('back\nawait 15000 idle:Storage')
             s.add('scroll 2\ncenter\nwait 600').shot('storage-cache-limit').add('back\nwait 300')
         if name == 'settings-system':
-            # About is the last System row (Product feedback, 2026-11-22).
+            # About is the last System row.
             s.open(99, 'About').add('wait 800').shot('settings-about').back('System')
         if name == 'settings-connections':
             s.open(2, 'Audiobookshelf', wait='').add('wait 1500').shot('settings-abs').add('back\nwait 300')

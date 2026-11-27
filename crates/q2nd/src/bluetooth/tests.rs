@@ -637,9 +637,8 @@ fn slow_start(fake: &mut q2_bt::fake::Fake) { fake.bring_up_delay = 40; }
 
 #[test]
 fn scan_and_pair_asked_while_the_controller_starts_run_once_it_is_ready() {
-    // Product feedback, V0.133: "I had to toggle bt on and off a few times to get a pair of headphones
-    // to pair." Before the fix, a scan or connection asked during bring-up reached a host that
-    // was not ready, was dropped, and left the screen searching until Bluetooth was toggled.
+    // A scan or connection asked during bring-up waits for the host. Sent to a host that was not
+    // ready, it was dropped and left the screen searching until Bluetooth was toggled.
     let f = fixture_setup("slow-start", "sbc", Some(slow_start));
     f.bluetooth.set_enabled(true);
     f.bluetooth.scan();
@@ -672,7 +671,7 @@ fn a_scan_during_the_reconnect_at_start_ends_that_page_and_finds_devices() {
     let state = f.until("scan", |s| s.found.len() >= 2 && !s.scanning);
     assert!(asked.elapsed() < Duration::from_secs(4), "the scan waited for the page to time out: {:?}", asked.elapsed());
     assert!(state.notice.is_empty(), "a reconnect the listener cut short is no problem");
-    // The scan over, the reconnect is not resumed (Product feedback, 2026-11-22).
+    // The scan over, the reconnect is not resumed.
     f.stays("no reconnect after the scan", Duration::from_millis(1500), |s| s.link == Link::Idle);
 }
 
@@ -768,11 +767,9 @@ fn connecting_the_headphones_the_start_up_reconnect_is_paging_takes_over_that_pa
 
 #[test]
 fn pair_new_device_during_the_reconnect_at_start_searches_at_once_and_the_reconnect_is_not_resumed() {
-    // Product feedback, V0.133: "BT scan doesn't work if it is currently trying to connect to a pair of
-    // headphones. You have to carefully wait for connection to timeout before you hit scan."
-    // Product feedback, 2026-11-22: "If the user has just paired a new device, they absolutely do not want
-    // to resume connecting to the other device. Cancel connections in progress when pairing and
-    // don't come back to them."
+    // Pair New Device searches at once while a connection attempt is in progress, without
+    // waiting for the page to time out. The attempt is cancelled and not resumed: a listener
+    // pairing a new device does not want to connect to the other one.
     let f = fixture_setup("discover-during-reconnect", "sbc", Some(real_page));
     f.pair();
     f.bluetooth.set_enabled(false);

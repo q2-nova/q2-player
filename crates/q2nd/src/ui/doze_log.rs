@@ -1,5 +1,5 @@
-//! Per-cycle doze telemetry on the device (Product feedback, 2026-11-12: "Record
-//! telemetry from the device so we can learn if it needs adjustment").
+//! Per-cycle doze telemetry on the device, to show whether the doze policy
+//! needs adjustment.
 //!
 //! One line per doze cycle, numbers and fixed words only (no song IDs,
 //! titles or network names), appended to a bounded file in internal state

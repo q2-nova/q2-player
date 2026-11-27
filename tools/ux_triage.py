@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Readable UX incidents from the diagnostic receiver (crate::ux reports).
 
-Prints UX errors, stuck states, unexplained stops, slow journeys and owner
-problem reports per boot, with decoded state and flight-recorder history, and
+Prints UX errors, stuck states, unexplained stops, slow journeys and Report
+a Problem reports per boot, with decoded state and flight-recorder history, and
 latency summaries for the journey distributions. `detail` hashes are mapped back
 to string literals found in the Rust sources (FNV-1a over non-digit bytes, as in
 `ux::text_hash`). Read-only; never writes the receiver store.
@@ -171,7 +171,7 @@ def describe(row, literals):
     elif what == "stuck":
         head = f"stuck {journey} for {e['latency_us'] / 1000:.0f} ms"
     elif what == "problem":
-        head = "owner problem report"
+        head = "Report a Problem"
     elif what == "recovered" and e["code"] == 34:
         head = f"underrun (errno {e['detail']}) during {journey}"
     else:

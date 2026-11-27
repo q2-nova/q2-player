@@ -249,8 +249,8 @@ async fn observe<B: Backend>(b: &B, shared: &Shared, m: &mut Monitor<B::Events>,
             b.helper("dhcp").await;
         }
         // Prefer the network's 5 GHz BSS (band.rs), only while the Wi-Fi page is open:
-        // no background scan while associated (Product feedback, 2026-11-22: full scans only when
-        // the known networks cannot be found or the page is open).
+        // no background scan while associated. Full scans run only when the known networks
+        // cannot be found or the page is open.
         let page_open = m.page_at.is_some_and(|at| Instant::now().saturating_duration_since(at) <= PAGE_OPEN);
         match (connected, new.ssid.as_deref(), new.bssid.as_deref(), new.freq) {
             (true, Some(ssid), Some(bssid), Some(freq)) if page_open && m.steer.wants(bssid) => {

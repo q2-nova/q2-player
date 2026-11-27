@@ -1,9 +1,7 @@
 # symphonia-bundle-flac 0.5.5, patched: subframes restructured for SIMD, with MSA kernels
 
-Requirement: Product feedback, 2026-11-18, `projects/cpu-optimization/README.md`:
-restructure the FLAC decoder for SIMD together with hand-written MSA,
-measured on the Q2. Results and the stage breakdown:
-`docs/app-size-and-speed.md`, "FLAC decoding".
+The FLAC decoder is restructured for SIMD together with hand-written MSA,
+measured on the Q2.
 
 | Item | Value |
 | --- | --- |

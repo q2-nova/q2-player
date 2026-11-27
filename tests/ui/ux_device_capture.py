@@ -5,7 +5,7 @@ The installed binary runs `q2nd --headless --script` on the Q2 as a separate
 process: no display, input or ALSA device (headless renders into memory and
 plays to the fake ALSA sink), data in a private size-limited tmpfs under
 /run, runtime directory and numeric-probe marker of its own, `env -i`. It
-does not read /mnt/mmc, /state, the installed player's runtime or the owner
+does not read /mnt/mmc, /state, the installed player's runtime or its
 config. The generated Navidrome and Audiobookshelf servers
 (ux_polish_capture.Fixture) run on this host, bound to this host's address
 on the USB network (``--host``).

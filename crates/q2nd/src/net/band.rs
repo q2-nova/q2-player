@@ -1,6 +1,6 @@
-//! Prefer a saved network's 5 GHz BSS (Product feedback, 2026-11-09). The supplicant's
-//! band choice was uncontrolled, and associated playback measured 498–526 mW
-//! on 5 GHz against 545–575 mW on 2437 MHz (docs/validation/radio-doze.md).
+//! Prefer a saved network's 5 GHz BSS. Associated playback measured 498–526 mW
+//! on 5 GHz against 545–575 mW on 2437 MHz, and the supplicant's own band
+//! choice does not prefer either.
 //!
 //! Once per associated BSS: if it is 2.4 GHz and the supplicant's scan lists
 //! the same SSID on 5 GHz at `MIN_DBM` or better, roam to the strongest such

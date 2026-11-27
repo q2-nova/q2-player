@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 //! Per-item media stores keep their files in one level of 256 subdirectories,
-//! named by two lowercase hex characters from an MD5 of the file name
-//! (Product feedback, 2026-11-18). One flat exFAT directory of 6,102 cover files made
-//! 40% of the player's samples directory scans while art was normalized.
+//! named by two lowercase hex characters from an MD5 of the file name. One
+//! flat exFAT directory of 6,102 cover files made 40% of the player's samples
+//! directory scans while art was normalized.
 //!
 //! Files written before the change stay readable where they are: every lookup
 //! tries the sharded path, the flat path, then the sharded path again, so a

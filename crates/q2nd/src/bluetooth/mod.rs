@@ -696,9 +696,8 @@ impl Drop for Bluetooth {
     fn drop(&mut self) { self.shutdown(); }
 }
 
-/// The thread's nice value. It is the A2DP stream's clock: while it does not run, nothing is
-/// sent (Product feedback, 2026-11-22: "Please do increase the bt thread's priority."). docs/bluetooth.md,
-/// "Thread priority".
+/// The thread's nice value, raised because the thread is the A2DP stream's clock: while it does
+/// not run, nothing is sent. docs/bluetooth.md, "Thread priority".
 const THREAD_NICE: i32 = -10;
 /// Whether the priority's outcome has been logged: once per process, not per start.
 static PRIORITY_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -738,8 +737,8 @@ fn thread_main(session: &Session, options: &Options, woken: &PipeReader, predece
 }
 
 /// Pair New Device drops the connections still waiting from before it was asked for: the
-/// listener looking for a new device does not want an older attempt to start after it
-/// (Product feedback, 2026-11-22). Connections asked for after it, the pairing among them, stay.
+/// listener looking for a new device does not want an older attempt to start after it.
+/// Connections asked for after it, the pairing among them, stay.
 fn drop_connects_before_search(pending: &mut VecDeque<(Request, Option<Instant>)>) {
     let Some(search) = pending.iter().rposition(|(r, _)| matches!(r, Request::Discover(Some(_)))) else { return };
     let mut index = 0;
@@ -1134,7 +1133,7 @@ fn run(blocking: &Blocking, session: &Session, options: &Options, woken: &PipeRe
                 Request::Discover(until) => {
                     // Pair New Device: a connection attempt in progress (the reconnect at start, or
                     // one the listener asked for earlier) ends, and is not resumed when the search
-                    // ends (Product feedback, 2026-11-22). A connected device stays connected.
+                    // ends. A connected device stays connected.
                     if until.is_some() && (user_connect.is_some() || auto_connect.is_some()) {
                         log::info!("Bluetooth: Pair New Device; ending the connection attempt in progress");
                         if host.paging().is_some() { host.command(Command::CancelConnect); }

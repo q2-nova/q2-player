@@ -610,7 +610,7 @@ pub struct App {
     #[cfg(test)]
     settle_doze_fixture: bool,
     doze_fetching: bool,
-    /// Per-cycle doze telemetry in internal state (Product feedback, 2026-11-12).
+    /// Per-cycle doze telemetry in internal state.
     doze_log: doze_log::DozeLog,
     doze_probe: doze_probe::DozeProbe,
     /// After a doze, ask for the upcoming songs once the link is back.

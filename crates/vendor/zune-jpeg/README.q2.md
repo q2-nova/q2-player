@@ -1,7 +1,6 @@
 # zune-jpeg 0.5.15, patched: MSA colour conversion and chroma upsampling
 
-Requirement: Product feedback, 2026-11-18, `projects/cpu-optimization/README.md`:
-hand-written MSA for measured hot paths, verified bit-identical in the
+Hand-written MSA for measured hot paths, verified bit-identical in the
 emulator. Measured with hardware counters on the Q2 (q2-os `docs/hardware.md`),
 decoding `image/cover.jpg`: `ycbcr_to_rgb_inner_16_scalar::<false>` 23% of
 cycles, `upsample_horizontal` 6.6%, `upsample_vertical` 4.5%. Upstream has

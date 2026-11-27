@@ -407,7 +407,7 @@ fn bytes(value: u64) -> String {
 }
 
 /// The same old/new pie paths can be measured on a generated guest or physical
-/// Q2 without opening the owner's configuration, library, audio or framebuffer.
+/// Q2 without opening the installed configuration, library, audio or framebuffer.
 pub(crate) fn benchmark(iterations: usize, mode: &str) -> Result<serde_json::Value, String> {
     use crate::gfx::Canvas;
     use md5::{Digest, Md5};

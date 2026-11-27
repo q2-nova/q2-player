@@ -338,7 +338,7 @@ pub fn reconfigure(blocking: &Blocking, directory: &Path, settings: &Telemetry) 
     crash::disable();
     capture.enabled = false;
     // Only this whitelist persists for future crash attribution; no routing,
-    // token, media or owner config is copied into crash context.
+    // token, media or user config is copied into crash context.
     crate::config::write_atomic(blocking, &directory.join("capture-context.json"),
         &serde_json::to_vec(&serde_json::json!({"schema":2,"enabled":settings.enabled,
             "boot":state.boot,"build":state.build,"process":state.process,"context":context}))?)?;

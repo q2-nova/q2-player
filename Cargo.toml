@@ -179,17 +179,16 @@ tokio = { git = "https://github.com/q2-nova/tokio", rev = "22ab0ee6ac7fc4be568ac
 # the same SQLite.
 libsqlite3-sys = { path = "crates/vendor/libsqlite3-sys" }
 # symphonia-bundle-mp3 0.5.5 restructured for SIMD with MSA kernels behind the
-# runtime capability check (Product feedback, 2026-11-18; docs/app-size-and-speed.md).
+# runtime capability check.
 symphonia-bundle-mp3 = { path = "crates/vendor/symphonia-bundle-mp3" }
 # symphonia-bundle-flac and symphonia-codec-alac 0.5.5 restructured for SIMD
-# with MSA kernels behind the runtime capability check (Product feedback, 2026-11-18;
-# docs/app-size-and-speed.md).
+# with MSA kernels behind the runtime capability check.
 symphonia-bundle-flac = { path = "crates/vendor/symphonia-bundle-flac" }
 symphonia-codec-alac = { path = "crates/vendor/symphonia-codec-alac" }
 # symphonia-core, symphonia-metadata and symphonia-format-isomp4 0.5.5 with
 # allocations sized by the bytes read, not by a length field, and errors
-# where a damaged file made them panic (code review 2026-11-21;
-# crates/vendor/symphonia-core/README.q2.md).
+# where a damaged file made them panic
+# (crates/vendor/symphonia-core/README.q2.md).
 symphonia-core = { path = "crates/vendor/symphonia-core" }
 symphonia-metadata = { path = "crates/vendor/symphonia-metadata" }
 symphonia-format-isomp4 = { path = "crates/vendor/symphonia-format-isomp4" }
@@ -197,5 +196,5 @@ symphonia-format-isomp4 = { path = "crates/vendor/symphonia-format-isomp4" }
 # (crates/vendor/symphonia-format-riff/README.q2.md).
 symphonia-format-riff = { path = "crates/vendor/symphonia-format-riff" }
 # zune-jpeg 0.5.15 with MSA colour conversion and chroma upsampling behind the
-# runtime capability check (Product feedback, 2026-11-18; crates/vendor/zune-jpeg/README.q2.md).
+# runtime capability check (crates/vendor/zune-jpeg/README.q2.md).
 zune-jpeg = { path = "crates/vendor/zune-jpeg" }

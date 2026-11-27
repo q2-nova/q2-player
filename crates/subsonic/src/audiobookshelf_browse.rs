@@ -710,7 +710,7 @@ impl Client {
     /// A browse page as a conditional request: with the
     /// `etag` of a stored copy, a 304 answers [`Validated::Unchanged`] with
     /// no body. Audiobookshelf (Express) sends an ETag for every JSON
-    /// document and honours `If-None-Match` (owner's server, 2026-11-22).
+    /// document and honours `If-None-Match`.
     pub async fn browse_page_validated_async(
         &self, library: &str, media: Media, section: &Section, page: u32, limit: u32, etag: Option<&str>,
     ) -> Result<Validated<Page>, Error> {
@@ -764,8 +764,7 @@ impl Client {
     /// The library's newest items (`sort=addedAt&desc=1`) and its item
     /// count: the sync's marker for items added or removed. Audiobookshelf
     /// has no updated-at order (`sort=updatedAt` is ignored) and the
-    /// library's `lastUpdate` does not move with its items (owner's server,
-    /// 2026-11-22).
+    /// library's `lastUpdate` does not move with its items.
     pub async fn newest_items_async(&self, library: &str, media: Media, limit: u32) -> Result<Page, Error> {
         let mut planned = plan(library, media, &Section::Books, 0, limit)?;
         planned.query.retain(|(k, _)| *k != "sort");

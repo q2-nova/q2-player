@@ -1,6 +1,5 @@
-//! Group pages built from the Books list the sync already stores (Product feedback,
-//! 2026-11-22: "we certainly should build the series and author pages based
-//! on the book data we already have"). A minified Audiobookshelf item names
+//! Group pages built from the Books list the sync already stores, so series
+//! and author pages need no requests of their own. A minified Audiobookshelf item names
 //! its series (`Name #sequence`), authors and narrators joined with ", ", and
 //! lists its genres; it carries no series or author ids. The ids come from
 //! the Series and Authors lists the sync fetches anyway (one page per 50
@@ -83,7 +82,7 @@ pub(super) fn derive(kind: Kind, books: &[(Entry, Facts)], groups: &[Group]) -> 
         // Genres carry no count; the others must agree with their row.
         let agrees = match kind { Kind::Genre => !found.is_empty(), _ => group.count == Some(found.len() as u64) };
         // A series pages by sequence and breaks ties by an order the rows do
-        // not show (on the owner's server 15 of 52 series pages): one with a
+        // not show (15 of 52 series pages on one real server): one with a
         // missing, repeated or non-numeric sequence is fetched.
         let ordered = kind != Kind::Series || {
             let mut numbers: Vec<f64> = Vec::new();

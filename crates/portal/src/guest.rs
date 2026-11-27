@@ -431,7 +431,7 @@ fn hidden_session_field(name: &str) -> bool {
 
 // Published LTG Link guest form signature. This only interprets controls
 // present in the current page and uses the same explicit consent as any
-// other portal. See Jonah Brüchert's freewifid provider example, 2025-08-29.
+// other portal. See the freewifid LTG Link provider example (2025-08-29).
 fn ltg_signature(action: &Url) -> bool {
     action.scheme() == "http"
         && action.host_str() == Some("192.168.1.100")

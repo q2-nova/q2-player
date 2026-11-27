@@ -1291,7 +1291,7 @@ mod tests {
         wait(async move { lib.stop_shelf_auto_sync().await; Ok(()) }).unwrap();
     }
 
-    /// Product feedback, 2026-11-22: a full resync runs only when asked for on the
+    /// A full resync runs only when asked for on the
     /// connection page, or in the background while charging, at most once a
     /// day. A marker round (Sync Now, the six-hour freshness) reads a few
     /// documents.

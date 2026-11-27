@@ -182,8 +182,8 @@ fn app_dozes_while_paused_only_when_configured_and_the_next_minutes_are_local() 
     for root in [root1, root2, root3] { std::fs::remove_dir_all(root).unwrap(); }
 }
 
-/// Product feedback, 2026-11-22: doze the radio while paused, but only while paused
-/// with the screen off; a lit screen may be the owner browsing.
+/// Doze the radio while paused, but only with the screen off: a lit screen
+/// may be the listener browsing.
 #[test]
 fn by_default_a_pause_dozes_only_after_a_minute_of_dark_screen() {
     let _exclusive = crate::ui::TEST_FIXTURE.lock().unwrap_or_else(|e| e.into_inner());

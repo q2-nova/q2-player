@@ -963,7 +963,7 @@ fn a_connection_during_a_name_request_cancels_that_request() {
 
 #[test]
 fn automatic_takes_the_best_codec_both_sides_have_aac_before_sbc() {
-    // Product feedback, V0.133: AirPods Pro 2 (SBC and AAC) got SBC in Automatic.
+    // Headphones with SBC and AAC get AAC in Automatic, not SBC.
     for (theirs, expected) in [(&[Kind::Aac][..], Kind::Aac), (&[Kind::Aac, Kind::AptX][..], Kind::AptX), (&[Kind::Aac, Kind::Ldac][..], Kind::Ldac), (&[][..], Kind::Sbc)] {
         let mut rig = with_codecs(&Kind::AUTOMATIC, theirs);
         rig.until(5000, |r| r.host.ready());
