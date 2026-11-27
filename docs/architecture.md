@@ -31,9 +31,9 @@ their effects.
 - Spawn tasks with `rt::Runtime::spawn`. It times every poll, so the stall
   detector ([`rt/stall.rs`](../crates/q2nd/src/rt/stall.rs)) logs a task
   that holds its executor for 50 ms or more.
-- Use `tokio::time` for timers. The workspace patches tokio to the copy in
-  [`crates/vendor/tokio`](../crates/vendor/tokio/README.q2.md), which wakes
-  the runtime thread once per timer expiry.
+- Use `tokio::time` for timers. The workspace patches tokio to branch
+  `q2/1.54.1` of [q2-nova/tokio](https://github.com/q2-nova/tokio), which
+  wakes the runtime thread once per timer expiry.
 - Do blocking work (card, process and device I/O, sleeps, waits) only in
   functions that take `&rt::Blocking`. Only `rt::spawn_blocking` (a pool
   thread) and `Blocking::dedicated_thread` (the start of a thread that

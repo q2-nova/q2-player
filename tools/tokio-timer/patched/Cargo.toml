@@ -1,4 +1,4 @@
-# The same program as ../Cargo.toml, linked against crates/vendor/tokio.
+# The same program as ../Cargo.toml, linked against the workspace's patched tokio.
 [package]
 name = "tokio-timer-wake-patched"
 version = "0.0.0"
@@ -13,7 +13,7 @@ path = "../src/main.rs"
 tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net", "time", "macros", "sync"] }
 
 [patch.crates-io]
-tokio = { path = "../../../crates/vendor/tokio" }
+tokio = { git = "https://github.com/q2-nova/tokio", rev = "22ab0ee6ac7fc4be568acde63de8c6eac0f274b7" }
 
 [workspace]
 

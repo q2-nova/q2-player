@@ -1,5 +1,5 @@
 # Wakeups per timer expiry with upstream tokio (this manifest) and with the
-# patched copy in crates/vendor/tokio (patched/Cargo.toml, same source file).
+# workspace's patched tokio (patched/Cargo.toml, same source file).
 # A separate workspace: the product's lockfile is not involved.
 [package]
 name = "tokio-timer-wake"
