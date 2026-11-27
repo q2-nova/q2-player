@@ -125,7 +125,7 @@ def venue(name, out, inputs):
     log = out / 'run.log'
     with log.open('x') as stream:
         try:
-            rc = subprocess.run(argv, stdout=stream, stderr=subprocess.STDOUT, timeout=150).returncode
+            rc = subprocess.run(argv, stdout=stream, stderr=subprocess.STDOUT, timeout=240).returncode
         except subprocess.TimeoutExpired:
             stream.write('bounded sandbox timeout\n')
             rc = 124

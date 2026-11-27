@@ -442,7 +442,8 @@ def phone():
                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as app:
                         try:
                             try:
-                                until(lambda: (LIFECYCLE / 'scan-ready').is_file() or app.poll() is not None, 20)
+                                # Longer than the App test's own 20 s waits, so it reports its failure.
+                                until(lambda: (LIFECYCLE / 'scan-ready').is_file() or app.poll() is not None, 75)
                             except AssertionError:
                                 app.kill()
                             if app.poll() is not None or not (LIFECYCLE / 'scan-ready').is_file():
