@@ -486,7 +486,8 @@ credit stalls, late packets, schedule restarts, queue depth, LDAC changes,
 underruns, late thread wakes (20 ms or more past the timeout), the longest
 UART write and the slowest encode. Flight-recorder marks: `bt-stall`,
 `bt-transport`, `bt-rate`, `bt-state`, `wifi-event` and `wifi-scan`.
-`python3 tools/ux_triage.py --boot latest` prints them.
+`python3 tools/ux_triage.py --store STORE --boot latest` prints them, where
+STORE is the `reports.sqlite` under `tools/diagnostic_receiver.py --out`.
 
 ## Probe commands
 
