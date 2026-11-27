@@ -1,14 +1,6 @@
 # symphonia-metadata 0.5.5, patched: long tag values and attached pictures are skipped unread
 
-Requirement, review and evidence: as `../symphonia-core/README.q2.md`
-(Product feedback, 2026-11-21, goal G7; `docs/validation/code-review-2026-11-21.md`).
-
-The player shows the server's artwork and metadata and never reads a file's
-own tags. Upstream read every ID3v2 frame, Vorbis comment and FLAC picture
-into memory at track start and kept the pictures in the format reader for
-the length of the track: an MP3 with a 1 MiB cover held 2.1 MiB of heap
-(the frame, then its copy as a `Visual`) against 0.13 MiB without one. A
-damaged length field asked for up to 4 GiB.
+The player uses artwork and metadata from the library. The patched readers bound allocations for embedded tag values and pictures.
 
 | Item | Value |
 | --- | --- |

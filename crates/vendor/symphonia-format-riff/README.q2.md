@@ -1,13 +1,6 @@
 # symphonia-format-riff 0.5.5, patched: length limits for WAV and AIFF
 
-Requirement, review and evidence: as `../symphonia-core/README.q2.md`
-(Product feedback, 2026-11-21, goal G7; `docs/validation/code-review-2026-11-21.md`,
-round 2, item 3).
-
-WAV and AIFF files go through this demuxer. Round 1's damaged-file test
-changed length fields at random; a field that disagrees with its enclosing
-chunk is refused before it is used, so 40,000 cases found nothing. A file
-whose lengths agree with each other reaches two places that had no limit:
+This demuxer validates lengths in WAV and AIFF. The damaged-file suite includes inputs whose inner and outer lengths agree but would otherwise cause excessive allocations.
 
 | Item | Value |
 | --- | --- |
@@ -26,10 +19,7 @@ Changed lines are marked `[q2 patch]`.
 | `wave/chunks.rs` `InfoChunk::parse` | `vec![0u8; len]` for a LIST/INFO value of any declared length ("TODO: Apply limit"): up to 4 GiB zeroed before a byte is read. The Q2 refuses that allocation, which aborts the player | a value above `symphonia_core::io::Q2_MAX_TAG_BYTES` (64 KiB) is skipped unread and reported empty, as the other metadata readers do. The player reads no embedded tags |
 | `common.rs` `next_packet` (WAV and AIFF) | a packet is up to 1152 blocks of the `fmt ` chunk's block size, a 16-bit field: 72 MiB read into memory when the file has it | decode error above `Q2_MAX_PACKET_BYTES` (1 MiB; 1152 frames of eight 32-bit channels are 36 KiB). The player fails the track (`Engine::step`) |
 
-Test: `riff_lengths_that_the_file_agrees_on_do_not_size_an_allocation`
-(`crates/q2nd/src/audio/decoder/corrupt_tests.rs`). Before: one allocation of
-1,073,741,824 bytes for a 60-byte file. After: nothing above 4 MiB, and a
-real 2 MiB INFO value is skipped while the audio plays.
+The player regression `riff_lengths_that_the_file_agrees_on_do_not_size_an_allocation` exercises both excessive lengths and a valid oversized metadata value.
 
 ## Not changed
 

@@ -1,11 +1,7 @@
 # q2-aac: AAC-LC encoder for the A2DP source
 
-Requirement: Product feedback, 2026-11-21: an AAC-LC encoder for the Bluetooth A2DP source;
-no non-commercial licence terms; each licence recorded.
-
 `q2-aac` wraps the VisualOn AAC encoder (vo-aacenc, Apache-2.0, fixed-point C) and
-packs access units as RFC 3016 LATM. Everything below dated 2026-11-21 was fetched
-or measured that day.
+packs access units as RFC 3016 LATM.
 
 ## Licence decision
 
@@ -133,18 +129,10 @@ every file; it is limited to the one file that needs it because libc headers may
 `__unused` as an identifier. The compiler and target flags are what `cc` reads from the
 environment (`CC_<target>`, `CFLAGS_<target>`, ...).
 
-To re-fetch and verify (scripts are in the git-ignored `build/codec-aac/`):
-
-```sh
-curl -sL -o build/codec-aac/dl/vo-aacenc-a277487e.tar.gz \
-  https://github.com/mstorsjo/vo-aacenc/archive/a277487e051e92e99a532294eed3c673f4d879f2.tar.gz
-sha256sum build/codec-aac/dl/vo-aacenc-a277487e.tar.gz   # e67b2461...6a3b96, as in UPSTREAM.json
-python3 -I build/codec-aac/make_upstream.py verify \
-  crates/codecs/q2-aac/vendor/vo-aacenc build/codec-aac/dl/vo-aacenc-a277487e.tar.gz
-```
-
-Without the script: unpack the archive in an empty directory and compare each path in
-`UPSTREAM.json` `files` with the same path in the archive (`LICENSE` with `COPYING`).
+To verify the vendored subset, download the archive named in
+[`UPSTREAM.json`](vendor/vo-aacenc/UPSTREAM.json) and check its SHA-256.
+Unpack into an empty directory, then compare each listed path and hash.
+The vendored `LICENSE` corresponds to `COPYING` in the archive.
 
 ## API notes
 
@@ -164,78 +152,13 @@ Without the script: unpack the archive in an empty directory and compare each pa
   when `malloc` returns NULL, and the library then writes through the null pointer.
   The encoder allocates only in `Encoder::new`.
 
-## Measurements (2026-11-21)
-
-Host: AMD Ryzen 9 5900XT, GCC, FFmpeg 8.1.3. Nothing here was measured on the Q2.
-
-### Tests
-
-`cargo test --offline --manifest-path crates/codecs/q2-aac/Cargo.toml`: 10 tests pass
-(7 encoder, 3 LATM). The encoder-vector hashes (FNV-1a over 100 access units each) were
-reproduced by the same C sources built with the rig SDK's
-`mipsel-buildroot-linux-gnu` GCC 15.3.0 and run under qemu-user
-(`build/codec-aac/xcheck.sh`): all four equal the committed x86_64 values. The crate
-itself was not built through cargo for the Q2 target.
-
-`CC=clang build/codec-aac/asan.sh` (ASan and UBSan) over the same runs (four
-configurations of 100 frames, then 30 s at 256 and 320 kbit/s): no address errors;
-UBSan reports left shifts of negative values (several files) and the signed-addition
-wraps named above.
-
-### Bench
-
-`cargo run --release --offline --manifest-path crates/codecs/q2-aac/Cargo.toml --example bench`
-
-| Bitrate | Host, ms per audio second | Measured bitrate |
-| --- | --- | --- |
-| 256000 | 8.4 | 256000 |
-| 320000 | 8.2 | 319725 |
-
-The mipsel build under qemu-user on the same host takes 48 to 49 ms per audio second;
-that is an emulator figure, not a Q2 figure. Code size for mipsel at `-O2`: 99.9 kB
-text and read-only tables, 68 bytes data (`build/codec-aac/mips_size.sh`).
-
-### FFmpeg decode check
+## Test and benchmark
 
 ```sh
-Q2_AAC_DUMP=$PWD/build/codec-aac/dump cargo test --offline \
-  --manifest-path crates/codecs/q2-aac/Cargo.toml --test encoder dump_for_ffmpeg
-python3 -I build/codec-aac/ffmpeg_check.py build/codec-aac/dump   # needs numpy: the main checkout's build/venv
+cargo test --offline --manifest-path crates/codecs/q2-aac/Cargo.toml
+cargo run --release --offline --manifest-path crates/codecs/q2-aac/Cargo.toml --example bench
 ```
 
-Input: the tests' generated signal, 10 s at 44.1 kHz (441000 frames, 430 access units):
-440 Hz and 3 kHz tones on the left, 660 Hz and 5 kHz on the right, white noise at
-+-512 on both. FFmpeg decodes the ADTS file and the LOAS file (each `latm()` element
-behind a LOAS sync header) to the same PCM at every bitrate, without errors.
-
-- Decoded length: 440320 frames = 430 x 1024 (9.985 s) for 430 access units.
-- Delay, found by least-squares search over 0 to 4096 samples: 1600 samples on both
-  channels at 128, 256 and 320 kbit/s.
-
-Waveform SNR over the aligned overlap after the first 4 frames, left / right, in dB.
-"Below 16 kHz" counts only spectral content under 16 kHz (the encoder low-passes at
-20 kHz, which caps the full-band figure on a signal with white noise). The other two
-encoders are FFmpeg's own, on the same input, measured the same way.
-
-| kbit/s | q2-aac | q2-aac below 16 kHz | FFmpeg `aac` below 16 kHz | `libfdk_aac` below 16 kHz |
-| --- | --- | --- | --- | --- |
-| 128 | 31.4 / 22.7 | 33.1 / 23.4 | 29.0 / 27.4 | 35.2 / 32.9 |
-| 256 | 32.4 / 25.4 | 34.4 / 26.1 | 38.4 / 36.4 | 44.6 / 40.9 |
-| 320 | 34.3 / 30.7 | 37.8 / 33.8 | 44.3 / 42.2 | 47.6 / 44.0 |
-
-Second input, `Q2_AAC_INPUT=build/codec-aac/pink.s16`: 10 s of independent pink noise
-per channel from FFmpeg's `anoisesrc` (amplitude 0.4). Delay 1600, length 430 x 1024.
-
-| kbit/s | q2-aac | q2-aac below 16 kHz | FFmpeg `aac` below 16 kHz | `libfdk_aac` below 16 kHz |
-| --- | --- | --- | --- | --- |
-| 128 | 9.1 / 9.1 | 9.9 / 10.1 | 10.2 / 10.2 | 13.1 / 13.1 |
-| 256 | 14.4 / 14.4 | 16.6 / 16.7 | 17.8 / 17.9 | 23.5 / 23.4 |
-| 320 | 15.7 / 15.7 | 18.6 / 18.7 | 22.0 / 21.9 | 27.5 / 27.5 |
-
-vo-aacenc does not spend all of a high bitrate. Its access units hit the requested
-size, but part of each is fill elements (runs of zero bytes): zero bytes are 0.9 %,
-14.5 % and 21.9 % of the stream at 128, 256 and 320 kbit/s on the generated signal,
-and 9.8 %, 13.1 % and 20.5 % on pink noise, against at most 1.2 % for the other two
-encoders. From 256 to 320 kbit/s its SNR rises 1.3 to 7.7 dB depending on signal and
-channel. Waveform SNR is not a listening test; no listening test and no real music
-were used.
+Set `Q2_AAC_DUMP` to a generated output directory and run the
+`dump_for_ffmpeg` encoder test to produce ADTS and LOAS files for
+independent decoding.

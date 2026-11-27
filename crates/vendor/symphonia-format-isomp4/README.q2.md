@@ -1,12 +1,6 @@
 # symphonia-format-isomp4 0.5.5, patched: damaged MP4 files end in errors
 
-Requirement, review and evidence: as `../symphonia-core/README.q2.md`
-(Product feedback, 2026-11-21, goal G7; `docs/validation/code-review-2026-11-21.md`).
-
-M4A (AAC, ALAC) and M4B files go through this demuxer. With the base crate,
-2000 damaged copies of each of the three MP4 fixtures gave 46 files that would have ended the
-installed player: `unwrap` on a missing descriptor, a zero timescale in
-`TimeBase::new`, and table counts that reserved up to 64 GiB.
+This demuxer reads AAC and ALAC in M4A files and spoken media in M4B files. It validates allocation sizes against container boundaries before reading tables and sample data.
 
 | Item | Value |
 | --- | --- |

@@ -177,73 +177,11 @@ contraction).
   set; then writes 5 s per rate and quality as `ldac_<quality>_<rate>.ldac`
   (raw LDAC frames) and `.pcm` (the input, interleaved s16le).
 
-### The same vectors on the target architecture
+## Benchmark
 
-A C replica of `encoder_vectors`, built with the rig SDK's
-`mipsel-buildroot-linux-gnu-gcc` 15.3 (`-O2`, mips32r2, hard float, fp64) and
-run under `qemu-mipsel-static`, printed the same eight hashes as the x86-64
-test, with and without `-ffp-contract=off` and with `-mmsa`. That covers the C
-code and the compiler; the Rust crate was not built for the Q2 target and
-nothing was run on a Q2.
-
-### Decode check (development time, 2026-11-21)
-
-Decoder: https://github.com/hegdi/libldacdec at commit
-`7f3bd6cc1586b764b02f2e4f20b16c7ff18758b9`, MIT licence (`LICENSE`:
-"Copyright (c) 2021 Dirk Helbig"). Its README calls it an early-stage decoder.
-It is not vendored and no test needs it. FFmpeg has no LDAC decoder.
-
-Method: dump with `Q2_LDAC_DUMP`, decode each `.ldac` frame by frame with
-`ldacDecode`, find the delay with the least error energy, then
-SNR = 10 log10(sum input² / sum (decoded − input)²) over the rest of the 5 s,
-skipping the first 4096 samples, no gain fit. Float encoder build, x86-64.
-
-| Rate | Quality | Delay (samples) | SNR left (dB) | SNR right (dB) |
-|---|---|---|---|---|
-| 44100 | High | 128 | 67.47 | 67.47 |
-| 44100 | Standard | 128 | 46.22 | 46.21 |
-| 44100 | Mobile | 128 | 41.63 | 41.61 |
-| 48000 | High | 128 | 67.74 | 67.74 |
-| 48000 | Standard | 128 | 46.41 | 46.39 |
-| 48000 | Mobile | 128 | 41.80 | 41.76 |
-| 88200 | High | 256 | 44.64 | 44.64 |
-| 88200 | Standard | 256 | 40.22 | 40.20 |
-| 88200 | Mobile | 256 | 38.69 | 38.70 |
-| 96000 | High | 256 | 44.59 | 44.59 |
-| 96000 | Standard | 256 | 40.17 | 40.15 |
-| 96000 | Mobile | 256 | 38.68 | 38.68 |
-
-The delay is one LDAC frame. Every stream decoded without error and the
-decoder returned one frame of PCM per encoded frame. The test signal's noise
-is white up to the Nyquist frequency and is about 37 dB below the tones in level, so
-these figures are mostly a measure of how much of that noise each bit rate
-keeps; the 88.2/96 kHz rows spread it over twice the bandwidth. They are not
-a listening-quality measure.
-
-To repeat (scripts are development scratch under `build/codec-ldac/scripts/`,
-not part of the crate): unpack libldacdec, compile `libldacdec.c`,
-`bit_allocation.c`, `huffCodes.c`, `bit_reader.c`, `utility.c`, `imdct.c` and
-`spectrum.c` with a driver that calls `ldacdecInit` once and `ldacDecode` per
-frame (advance by its `bytesUsed`, write `frameSamples` stereo frames), then
-compare with the `.pcm` files.
-
-## Host bench
-
-`cargo run --release --offline --manifest-path crates/codecs/q2-ldac/Cargo.toml --example bench`
-
-On the development host (x86-64, 2026-11-21), milliseconds of encode time per
-second of audio:
-
-| | Float (default) | `--features fixed-point` |
-|---|---|---|
-| High 44100 | 2.3 | 3.4 |
-| Standard 44100 | 2.3 | 3.3 |
-| Mobile 44100 | 2.2 | 3.2 |
-| High 96000 | 3.7 | 5.5 |
-
-Encode time on the Q2 has not been measured. Under `qemu-mipsel-static` the
-order is reversed (float 63, fixed 23 ms per second at High 44100), which
-reflects qemu's software floating point and not the Q2's FPU.
+```sh
+cargo run --release --offline --manifest-path crates/codecs/q2-ldac/Cargo.toml --example bench
+```
 
 ## Re-fetch and verify
 

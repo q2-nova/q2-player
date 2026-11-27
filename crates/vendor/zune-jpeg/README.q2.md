@@ -78,7 +78,7 @@ horizontal filter), use the same expression with wrapping scalar operations.
 A debug build of the scalar code panics on `i16` overflow where the release
 build wraps. The kernels exist only on MIPS; the Q2 build is a release build.
 
-### Instruction choices (`docs/x2000-msa.md`)
+### Instruction choices
 
 - No general-register to vector moves in a loop: coefficients are splat
   once per row (`fill.w`), the shuffle controls loaded once per row from a
@@ -97,8 +97,7 @@ build wraps. The kernels exist only on MIPS; the Q2 build is a release build.
 - `zune_jpeg::q2::check(seed, rounds)`: compares the dispatching entries
   with the scalar functions on generated input;
   `zune_jpeg::q2::check_decoder_range()` on every decoder-range input.
-- `--cfg q2_jpeg_no_msa` (`tests/perf/build-variant.sh LABEL
-  'RUSTFLAGS_EXTRA=--cfg q2_jpeg_no_msa'`): the capability check always says
+- `--cfg q2_jpeg_no_msa`: the capability check always says
   no.
 
 ## Checks
@@ -110,19 +109,7 @@ build wraps. The kernels exist only on MIPS; the Q2 build is a release build.
   `upsampler::tests::q2_impl`. On a host these cover the scalar path and the
   dispatch. The crate is not a workspace member; run them with
   `cargo test --offline --locked -p zune-jpeg` from the workspace root.
-- MSA against scalar: `tests/perf/jpeg_check_qemu.py build/variants/LABEL/q2nd`
-  runs the `jpeg-check` benchmark kind under qemu-user: `q2::check` with four
-  seeds (RGB rows of widths from 16, upsampler lengths from 3, decoder-range
-  values, edge values and the whole `i16` range); `q2::check_decoder_range`
-  (every `(y, cb, cr)` of 0..=255, the whole input domain of the colour
-  conversion because the IDCT clamps to that range, and every upsampler
-  sample and neighbour of 0..=255); then each JPEG fixture decoded with the
-  scalar code forced and with the default code, every RGB byte compared.
-  Control (2026-11-18): a build whose RGB kernel rounded with 8192 in place
-  of 8191 failed the generated-input check. That change alters no
-  decoder-range pixel: it needs `cr - 128` or `cb - 128` of 4096 modulo 8192.
-- Against the previous decoder: `tests/perf/bench_qemu.py --case 'image/'`
-  compares the image cases' `pixel_md5` between builds.
+- The player’s `--bench` mode `jpeg-check` compares scalar and MSA output on the target architecture. Run it against a generated fixture with the target build and a matching QEMU user emulator or device.
 
 To update: copy the new crates.io release here, remove `Cargo.lock` and
 `.cargo-ok`, apply `q2-msa.patch`, update the table above, run

@@ -50,7 +50,7 @@ N independent multiply-accumulates of the one new vector `y`; no multiply
 waits for another. The loop is unrolled N steps, which keeps every partial
 sum in a register (the accumulator of one `dpadd_s.d` is the source of none).
 
-MSA instruction choices follow `docs/x2000-msa.md`:
+MSA instruction choices follow [X2000 instruction costs](https://github.com/q2-nova/q2-toolchain/blob/main/docs/x2000-msa.md):
 - `dpadd_s.d`/`dotp_s.d` (32x32 to 64-bit products, 64-bit accumulate): 1.0
   cycle per instruction, latency 5. `mulv.d` is 4.0 cycles (i64 lanes are
   lane-serial) and is not used. The 64-bit lanes hold exact sums, so there is
@@ -95,8 +95,7 @@ with 480-frame runs replaced it (`docs/app-size-and-speed.md`).
 - `q2::selftest()`: the scalar prediction and output code against the current
   kernels on generated input (every kernel length, shifts 0-15, samples of
   1-32 bits, every decorrelation).
-- `--cfg q2_flac_no_msa` (`tests/perf/build-variant.sh LABEL
-  'RUSTFLAGS_EXTRA=--cfg q2_flac_no_msa'`): the capability check always says
+- `--cfg q2_flac_no_msa`: the capability check always says
   no. The structure-only arm of an A/B.
 - `--cfg q2_flac_profile`: stage timers (`src/q2prof.rs`), reported by the
   `decode` benchmark as `flac_profile`.
@@ -116,13 +115,7 @@ with 480-frame runs replaced it (`docs/app-size-and-speed.md`).
   Run `cargo test --offline -p symphonia-bundle-flac` in the workspace, also
   with `--release` (wrapping arithmetic, so the damaged frames that make
   upstream panic under overflow checks are compared too).
-- MSA against scalar: `tests/perf/lossless_check_qemu.py build/variants/LABEL/q2nd`
-  runs the `lossless-check` benchmark kind on every FLAC and ALAC fixture
-  under qemu-user: `q2::selftest()` with the MSA kernels, then both paths
-  decode the file and every i32 must be equal. On the Q2:
-  `tests/perf/bench_ab.py --suite lossless-check`.
-- Against the previous decoder: `tests/perf/bench_qemu.py` compares the
-  decode cases' sample hashes between builds.
+- The player’s `--bench` mode `lossless-check` compares scalar and MSA output on the target architecture. Run it against a generated fixture with the target build and a matching QEMU user emulator or device.
 
 To update: copy the new crates.io release here, remove `Cargo.lock` and
 `.cargo-ok`, apply `q2-simd.patch`, update the table above, run

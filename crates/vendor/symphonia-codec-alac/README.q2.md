@@ -29,7 +29,7 @@ start, so errors and odd packets behave as before by construction.
 | Bit reading (`q2bits.rs`) | symphonia-core's `BitReaderLtr`: 64-bit bit cache, `io::Result` per read | a bit position and a 32-bit window built from four bytes |
 | Adaptive Rice codes | up to three reads per code (prefix, suffix, last suffix bit) | one window per code: the prefix (at most 9 bits) and the suffix (at most 16) are in its 25 stream bits; count-leading-zeros of the complement gives the prefix; the suffix's two lengths are selected without a branch; the bit position stays in a register. Scalar: each code's parameter depends on the previous value |
 | Adaptive prediction | iterator chains over a 32-entry coefficient slice; one branch on the residual's sign per sample | one loop per order (4, 5, 6, 8 unrolled; others generic), the coefficients and the differences from the oldest sample in registers; one coefficient-update loop for both residual signs (the sign is a mask, not a branch). Scalar; see below |
-| Mixing, tail bits, output shift | three passes over the planes | one pass per element; four frames per vector with MSA (`mulv.w`, `sra.w`, `sll.w`, `or.v`; 0.5-1.0 cycle each, `docs/x2000-msa.md`); the tail bits are kept as two planes so they load as vectors |
+| Mixing, tail bits, output shift | three passes over the planes | one pass per element; four frames per vector with MSA (`mulv.w`, `sra.w`, `sll.w`, `or.v`; 0.5-1.0 cycle each, [X2000 instruction costs](https://github.com/q2-nova/q2-toolchain/blob/main/docs/x2000-msa.md)); the tail bits are kept as two planes so they load as vectors |
 
 ### Why the predictor is scalar
 
@@ -39,7 +39,7 @@ non-zero residual, oldest tap first, until the residual's remainder changes
 sign (a data-dependent early exit). In vector form the path from one sample
 to the next is `subv.w`, `mulv.w`, a horizontal sum (two shuffles and two
 adds), the rounding shift, the add and the sign-extension clip: about 30
-cycles of MSA latency (3-4 per instruction, `docs/x2000-msa.md`: "a
+cycles of MSA latency (3-4 per instruction, [X2000 instruction costs](https://github.com/q2-nova/q2-toolchain/blob/main/docs/x2000-msa.md): "a
 loop-carried dependency through one MSA instruction per element: 3 cycles
 per step against 1 for scalar integer code"). The coefficient update adds a
 prefix sum over the taps on the same path. The scalar loop's path is about
@@ -65,11 +65,10 @@ rewritings:
   the whole buffer afterwards. Frames no element writes are zero and stay
   zero under the shift.
 
-## Damaged files (2026-11-21)
+## Damaged files
 
-Two checks added to upstream's code after the damaged-file test
-(`audio::decoder::corrupt_tests` in `q2nd`;
-`docs/validation/code-review-2026-11-21.md`) ran 400,000 damaged files:
+The generated damaged-file suite in `q2nd` covers oversized frame
+allocations and invalid partial-frame lengths.
 
 | Place | Upstream | Here |
 | --- | --- | --- |
@@ -98,10 +97,7 @@ Two checks added to upstream's code after the damaged-file test
   code. Run `cargo test --offline -p symphonia-codec-alac` in the workspace,
   also with `--release` (wrapping arithmetic, so the packets that make
   upstream panic under overflow checks are compared too).
-- MSA against scalar: `tests/perf/lossless_check_qemu.py build/variants/LABEL/q2nd`
-  (see the FLAC copy's README.q2.md).
-- Against the previous decoder: `tests/perf/bench_qemu.py` compares the
-  decode cases' sample hashes between builds.
+- The player’s `--bench` mode `lossless-check` compares scalar and MSA output on the target architecture. Run it against a generated fixture with the target build and a matching QEMU user emulator or device.
 
 To update: copy the new crates.io release here, remove `Cargo.lock` and
 `.cargo-ok`, apply `q2-simd.patch`, update the table above, run

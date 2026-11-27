@@ -118,41 +118,11 @@ Not verified:
 - `dump_for_external_decoder`: with `Q2_APTX_DUMP=<dir>` writes `signal.s16`,
   `signal.aptx`, `signal.aptxhd` (4 s); otherwise does nothing.
 
-### FFmpeg decode check (host, 2026-11-21)
-
-FFmpeg 8.1.3 decoded the dumped streams; a script (`build/codec-aptx/snr.py`,
-not committed) searched the delay and computed SNR against the input over
-175286 frames, skipping the first 1024.
+## Benchmark
 
 ```sh
-Q2_APTX_DUMP=$PWD/build/codec-aptx/dump cargo test --offline --manifest-path crates/codecs/q2-aptx/Cargo.toml
-ffmpeg -f aptx    -sample_rate 44100 -i build/codec-aptx/dump/signal.aptx   -f s32le build/codec-aptx/dump/dec_aptx.s32
-ffmpeg -f aptx_hd -sample_rate 44100 -i build/codec-aptx/dump/signal.aptxhd -f s32le build/codec-aptx/dump/dec_aptxhd.s32
+cargo run --release --offline --manifest-path crates/codecs/q2-aptx/Cargo.toml --example bench
 ```
-
-| Mode | Delay (frames) | SNR left | SNR right | RMS error (16-bit LSB) |
-|---|---|---|---|---|
-| aptX | 90 | 42.33 dB | 39.49 dB | 50.9 / 52.4 |
-| aptX HD | 90 | 52.71 dB | 50.00 dB | 15.4 / 15.6 |
-
-At delays 89 and 91 the SNR is 12.8 dB. The test signal contains white noise
-of about 148 LSB RMS, which an ADPCM codec cannot predict; the figures are for
-this signal, not a rating of the codec.
-
-## Bench
-
-`cargo run --release --offline --manifest-path crates/codecs/q2-aptx/Cargo.toml --example bench`
-
-Host (AMD Ryzen 9 5900XT, 2026-11-21), 30 s of 44.1 kHz stereo:
-
-```
-aptx ms_per_audio_second=9.265
-aptx_hd ms_per_audio_second=9.799
-```
-
-Not yet measured on the Q2. The C file compiles with the rig's
-`mipsel-buildroot-linux-gnu-gcc -O2` (object: 13920 bytes text, 224 data,
-encoder and decoder); the crate itself has not been built for the Q2 target.
 
 ## Re-fetch and verify
 

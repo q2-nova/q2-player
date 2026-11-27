@@ -1,7 +1,6 @@
 # libsqlite3-sys 0.39.1, patched: SQLite's compile options from the repository
 
-Requirement: Product feedback, 2026-11-17: host tests use the same SQLite as the Q2, so a
-bug in the device's SQLite build reproduces on the host.
+The native tests and device use the same tracked SQLite compile options.
 
 | Item | Value |
 | --- | --- |

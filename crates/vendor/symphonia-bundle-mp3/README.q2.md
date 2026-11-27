@@ -39,7 +39,7 @@ check is cached in one `AtomicU8`. `lib.rs` goes from `forbid(unsafe_code)` to
 `deny`, with `allow` on the MSA lane type, the capability check and the
 entry points.
 
-MSA instruction choices follow `docs/x2000-msa.md`:
+MSA instruction choices follow [X2000 instruction costs](https://github.com/q2-nova/q2-toolchain/blob/main/docs/x2000-msa.md):
 - `fmul.w` + `fadd.w`, never `fmadd.w` (fused: different rounding; and 7
   cycles of accumulator latency);
 - eight independent accumulators in the window;
@@ -93,12 +93,10 @@ The clamp keeps `f32::clamp`'s result for NaN (`fclt.w` + `bsel.v` twice).
 
 - `symphonia_bundle_mp3::q2::msa()`, `set_msa(Some(false) | Some(true) | None)`:
   which path runs; for tests and benchmarks.
-- `--cfg q2_mp3_no_msa` (`tests/perf/build-variant.sh LABEL
-  'RUSTFLAGS_EXTRA=--cfg q2_mp3_no_msa'`): the capability check always says
+- `--cfg q2_mp3_no_msa`: the capability check always says
   no. The structure-only arm of an A/B.
 - `--cfg q2_mp3_profile`: stage timers (`src/q2prof.rs`), reported by the
-  `decode` benchmark as `mp3_profile` and summarized by
-  `tests/perf/mp3_profile.py`. `--cfg q2_mp3_profile_fine` adds the
+  `decode` benchmark as `mp3_profile`. `--cfg q2_mp3_profile_fine` adds the
   DCT-32/window split inside synthesis (two more timer pairs per batch and
   slot; about 1.5 µs each on the Q2).
 
@@ -113,11 +111,7 @@ The clamp keeps `f32::clamp`'s result for NaN (`fclt.w` + `bsel.v` twice).
   workspace member; run them with
   `cargo test --offline --manifest-path crates/vendor/symphonia-bundle-mp3/Cargo.toml`.
   They cover the scalar lanes.
-- MSA against scalar: `tests/perf/mp3_check_qemu.py build/variants/LABEL/q2nd`
-  runs the `mp3-check` benchmark kind on every MP3 fixture under qemu-user:
-  both paths decode the file and every f32 must have the same bits.
-- Against the previous decoder: `tests/perf/bench_qemu.py` compares the
-  decode cases' sample hashes between builds.
+- The player’s `--bench` mode `mp3-check` compares scalar and MSA output on the target architecture. Run it against a generated fixture with the target build and a matching QEMU user emulator or device.
 
 To update: copy the new crates.io release here, remove `Cargo.lock` and
 `.cargo-ok`, apply `q2-simd.patch`, refresh `src/q2ref/` from the new

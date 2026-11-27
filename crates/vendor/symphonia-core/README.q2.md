@@ -1,16 +1,6 @@
 # symphonia-core 0.5.5, patched: allocations follow the bytes read; no panic on a zero time base
 
-Requirement: Product feedback, 2026-11-21, goal G7 (`PROJECTS.md`): review the code,
-add the missing correctness and performance tests, and use them to fix what
-they find. Review, evidence and what remains:
-`docs/validation/code-review-2026-11-21.md`.
-
-The installed player is built with `panic = "abort"`, and a refused
-allocation aborts as well. A length or count field of a damaged file reached
-`vec![0; len]` and `Vec::with_capacity(count)` in the demuxers and metadata
-readers, and a zero timescale reached a `panic!`. The test
-`audio::decoder::corrupt_tests` (crate `q2nd`) damages small files of every
-container and fails on a panic or on one allocation above 4 MiB.
+The damaged-file controls exercise demuxing and decoding with generated corrupt inputs and bound individual allocations. The release profile aborts if the allocator cannot honor a request.
 
 | Item | Value |
 | --- | --- |
@@ -40,6 +30,4 @@ A length field that the file can satisfy still allocates its bytes: a
 damaged field in a 500 MB audiobook can read up to the rest of the file. The
 readers that take lengths from tags, tables and samples apply their own
 limits (`symphonia-metadata/README.q2.md`,
-`symphonia-format-isomp4/README.q2.md`). The Ogg and RIFF readers have no
-such limits here; `docs/validation/code-review-2026-11-21.md` lists them
-under what remains.
+`symphonia-format-isomp4/README.q2.md`). The Ogg reader uses the shared bound based on incoming bytes. The patched RIFF reader also applies packet and metadata limits.
