@@ -88,10 +88,11 @@ PCM boundary (`bluetooth::pcm`) and settings.
 SBC uses 8 subbands, joint stereo or stereo, loudness or SNR allocation, and
 bitpool up to 53. Each codec crate's `README.q2.md` has the fetched version,
 hashes, licence evidence and how to verify it. The crates' FFI is the only
-`unsafe` on the codec path: 19 sites (3 extern blocks, 3 `unsafe impl Send`,
-13 blocks), all in each crate's `src/lib.rs`, each with a SAFETY comment; the
-count is `codecs_ffi_unsafe` in `docs/async/budget.json`. The three encoders
-add 197 kB to the release binary, which is locked in memory.
+`unsafe` on the codec path: 20 sites (3 extern blocks, 3 `unsafe impl Send`,
+14 blocks), all in each crate's `src/lib.rs`, each with a SAFETY comment;
+`grep -nE 'unsafe (extern|impl|\{)' crates/codecs/*/src/lib.rs` lists them.
+The three encoders add 197 kB to the release binary, which is locked in
+memory.
 
 Licence and patent notes:
 
