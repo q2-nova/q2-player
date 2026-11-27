@@ -16,7 +16,8 @@ TAG = r'v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*'
 ASSETS = {
     'q2-os': (SDK_BASE + '.tar.gz', 'sdk-manifest.json', 'sdk-test.json', 'buildroot.config',
               'SHA256SUMS', 'target.tar.gz', 'platform.json', 'buildroot-legal-info.tar.gz',
-              'RELEASE-SHA256SUMS'),
+              'xImage', 'rescue.cpio', 'shanling-q2.dtb', 'kernel-modules.tar.gz', 'linux.config',
+              'kernel-base.json', 'RELEASE-SHA256SUMS'),
     'q2-toolchain': ('compiler.tar.gz', 'compiler.tar.gz.sha256'),
     'tsrs': ('tsrsd-q2.tar.gz', 'tsrsd-q2.tar.gz.sha256'),
     'qemu': ('qemu-linux-x86_64.tar.gz', 'qemu-linux-x86_64.tar.gz.sha256'),

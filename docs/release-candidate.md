@@ -1,7 +1,7 @@
 # Player release candidates
 
 `release-lock.json` selects four component prereleases by tag. The OS release
-contains its matching SDK and platform assets. The compiler, standalone TSRS
+contains its matching SDK, platform, and prebuilt kernel, rescue, device tree and modules. The compiler, standalone TSRS
 daemon and QEMU releases contain their architecture-specific archives. The
 player workflow obtains the checksums from those same releases and verifies the
 archive bytes, producer identities and source pins. Temporary source locks and
@@ -9,7 +9,7 @@ build receipts record exactly which revisions the build used.
 
 A player tag such as `v0.1.0-rc.1` on a verified commit in main triggers **Player release
 candidate**. It builds the paired player and portal, composes a keyless
-installed OS fixture with the tagged OS builder, packs the firmware archive and
+installed OS fixture with the tagged OS builder and prebuilt kernel, packs the firmware archive and
 reads it back before booting those exact bytes under QEMU. The paired artifact
 remains in Actions for reuse. The prerelease contains
 `update.tar` labelled QEMU emulator rehearsal only, its boot result and their checksums. Keep this
