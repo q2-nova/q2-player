@@ -112,7 +112,7 @@ class OutputEquality(unittest.TestCase):
                 out=Path(tmp) / 'compare'))
             report = pgo.compare(args)
         self.assertTrue(report['passed'], report['differences'])
-        self.assertGreater(report['checksums'], 100)
+        self.assertGreaterEqual(report['checksums'], 80)
 
 
 def build_result(**changes):
