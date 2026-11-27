@@ -11,7 +11,7 @@
 //! no lock is taken: each event is one compare-and-swap of `transition`. Two
 //! outcomes finishing at the same moment can publish their effects in either
 //! order.
-use super::{set_offline_cause, cause_of, Library, LibEvent};
+use super::{set_offline_cause, clear_offline_cause_since, offline_cause_snapshot, cause_of, Library, LibEvent};
 use q2_machines::server::{self, Event, Priority, Status};
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
@@ -252,7 +252,6 @@ impl Library {
                 changed.await;
             }
             let ok = self.ping(generation).await;
-            if ok { set_offline_cause(0); }
             let Some((before, effect, _)) = self.health.step(Event::ProbeDone { ok }, Some(generation)) else { return };
             if let Some(status) = effect.publish { self.publish_status(before.status, status); }
             if !effect.probe { return; }
@@ -260,9 +259,10 @@ impl Library {
     }
 
     /// Up to [`PROBE_ATTEMPTS`] pings, each within [`PROBE_ATTEMPT`]; true
-    /// once the server answers. An HTTP/1.1 connection carries one exchange
-    /// at a time, so a ping takes the idle pooled connection or a new one and
-    /// never waits behind another response.
+    /// once the server answers, which clears the offline cause unless a
+    /// request failed while that ping was out. An HTTP/1.1 connection carries
+    /// one exchange at a time, so a ping takes the idle pooled connection or a
+    /// new one and never waits behind another response.
     async fn ping(self: &Arc<Self>, generation: u32) -> bool {
         for attempt in 0..PROBE_ATTEMPTS {
             if attempt > 0 { tokio::time::sleep(PROBE_RETRY).await; }
@@ -271,6 +271,7 @@ impl Library {
                 (owner.health.get().1 == generation).then(|| owner.client().ok()).flatten()
             }).await.ok().flatten();
             let Some(client) = client else { return false };
+            let since = offline_cause_snapshot();
             let request = async { client.fetch_async(&subsonic::calls::ping().request).await };
             let result = match tokio::time::timeout(PROBE_ATTEMPT, request).await {
                 Ok(result) => result.map(drop),
@@ -279,10 +280,10 @@ impl Library {
             let class = result.as_ref().err().and_then(subsonic::Error::failure).map_or(0, |class| class as u32);
             crate::ux::record(crate::ux::Mark::ServerProbe, u32::from(result.is_ok()) | (attempt + 1) << 4 | class << 8);
             match result {
-                Ok(()) => return true,
+                Ok(()) => { clear_offline_cause_since(since); return true }
                 Err(error) if error.is_offline() => set_offline_cause(cause_of(&error)),
                 // Auth and Subsonic errors are answers: the server is there.
-                Err(_) => return true,
+                Err(_) => { clear_offline_cause_since(since); return true }
             }
         }
         false

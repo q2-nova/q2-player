@@ -169,7 +169,9 @@ pub enum LibError {
 /// for the link it was observed on: a radio doze, its end and each new
 /// address start a new link epoch, so an older failure never names the
 /// cause of a later Offline (V0.128 read "Can't reach Navidrome" for it).
-/// Stored as `cause | epoch << 8`.
+/// Stored as `cause | sequence << 4 | epoch << 8`: the 4-bit sequence
+/// changes on every store, so a probe clears only a cause that no request
+/// replaced while its ping was out ([`clear_offline_cause_since`]).
 #[cfg(not(test))]
 static OFFLINE_CAUSE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 #[cfg(not(test))]
@@ -186,11 +188,29 @@ fn with_cause<R>(f: impl FnOnce(&std::sync::atomic::AtomicU32, &std::sync::atomi
 fn offline_cause() -> u8 {
     with_cause(|cause, epoch| {
         let stored = cause.load(Ordering::Relaxed);
-        if stored >> 8 == epoch.load(Ordering::Relaxed) & 0x00FF_FFFF { stored as u8 } else { 0 }
+        if stored >> 8 == epoch.load(Ordering::Relaxed) & 0x00FF_FFFF { (stored & 0x0F) as u8 } else { 0 }
     })
 }
 fn set_offline_cause(value: u8) {
-    with_cause(|cause, epoch| cause.store(u32::from(value) | (epoch.load(Ordering::Relaxed) & 0x00FF_FFFF) << 8, Ordering::Relaxed));
+    with_cause(|cause, epoch| {
+        let epoch = (epoch.load(Ordering::Relaxed) & 0x00FF_FFFF) << 8;
+        let _ = cause.fetch_update(Ordering::Relaxed, Ordering::Relaxed,
+            |stored| Some(u32::from(value & 0x0F) | (stored.wrapping_add(0x10) & 0xF0) | epoch));
+    });
+}
+/// The stored cause word, for [`clear_offline_cause_since`].
+fn offline_cause_snapshot() -> u32 {
+    with_cause(|cause, _| cause.load(Ordering::Relaxed))
+}
+/// The server answered a request sent after `snapshot`: clears the cause
+/// unless a failure was stored meanwhile. A stream that fails while a ping
+/// is out keeps its cause, so its error still reads "The server had a
+/// problem" after the ping succeeds.
+fn clear_offline_cause_since(snapshot: u32) {
+    with_cause(|cause, epoch| {
+        let cleared = (snapshot.wrapping_add(0x10) & 0xF0) | (epoch.load(Ordering::Relaxed) & 0x00FF_FFFF) << 8;
+        let _ = cause.compare_exchange(snapshot, cleared, Ordering::Relaxed, Ordering::Relaxed);
+    });
 }
 /// The link changed (a doze began or ended, an address arrived): causes
 /// observed before it no longer describe an Offline.
@@ -331,6 +351,26 @@ mod offline_cause_tests {
         assert_eq!(LibError::Offline.to_string(), "The server had a problem", "the 24-bit epoch wraps consistently");
         link_changed();
         assert_eq!(LibError::Offline.to_string(), "Not available offline");
+        set_offline_cause(0);
+    }
+
+    /// A ping that answers clears the cause, unless a request failed while
+    /// the ping was out: that request's error keeps naming its cause.
+    #[test]
+    fn a_probe_keeps_a_cause_stored_while_its_ping_was_out() {
+        let _ = LibError::from(subsonic::Error::Http(503));
+        let before_ping = offline_cause_snapshot();
+        clear_offline_cause_since(before_ping);
+        assert_eq!(LibError::Offline.to_string(), "Not available offline", "the server answered");
+        let before_ping = offline_cause_snapshot();
+        let failed = LibError::from(subsonic::Error::Http(503));
+        clear_offline_cause_since(before_ping);
+        assert_eq!(failed.to_string(), "The server had a problem", "failed while the ping was out");
+        let _ = LibError::from(subsonic::Error::Http(503));
+        let before_ping = offline_cause_snapshot();
+        let _ = LibError::from(subsonic::Error::Http(503));
+        clear_offline_cause_since(before_ping);
+        assert_eq!(LibError::Offline.to_string(), "The server had a problem", "the same cause stored again");
         set_offline_cause(0);
     }
 }
