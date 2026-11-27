@@ -43,7 +43,8 @@ jobs:
       - name: Admit tagged SDK, compiler, platform, TSRS and QEMU releases
         env:
           GH_TOKEN: ${{ secrets.Q2_COMPONENTS_READ_TOKEN || github.token }}
-        run: python3 tools/fetch-build-tools.py --owner "$GITHUB_REPOSITORY_OWNER" --out build/rc-inputs
+          COMPONENTS_OWNER: ${{ vars.Q2_COMPONENTS_OWNER || 'q2-nova' }}
+        run: python3 tools/fetch-build-tools.py --owner "$COMPONENTS_OWNER" --out build/rc-inputs
       - name: Install package and QEMU runtime tools
         run: |
           mapfile -t runtime < <(jq -r '.files[].runtime_dependencies[].package' build/rc-inputs/qemu/qemu-artifact.json | sort -u)
@@ -57,6 +58,8 @@ jobs:
           nightly=$(jq -er .rust_toolchain build/rc-inputs/q2-os/os/sources.json)
           rustup toolchain install "$nightly" --profile minimal --component rust-src
           cargo "+$nightly" fetch --locked
+          std_manifest="$PWD/build/rc-inputs/compiler/install/lib/rustlib/src/rust/library/Cargo.toml"
+          cargo "+$nightly" fetch --locked --manifest-path "$std_manifest"
           python3 tools/build-target.py --component-lock build/rc-inputs/component-lock.json \
             --sdk build/rc-inputs/sdk/mipsel-buildroot-linux-gnu_sdk-buildroot \
             --toolchain-repo build/rc-inputs/q2-toolchain --compiler-work build/rc-inputs/compiler \

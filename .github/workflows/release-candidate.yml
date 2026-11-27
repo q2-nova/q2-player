@@ -62,7 +62,7 @@ jobs:
             --dir build/stock-release-assets
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          repository: ${{ github.repository_owner }}/q2-os
+          repository: ${{ vars.Q2_COMPONENTS_OWNER || 'q2-nova' }}/q2-os
           ref: ${{ steps.pin.outputs.os_commit }}
           token: ${{ secrets.Q2_COMPONENTS_READ_TOKEN || github.token }}
           path: build/release-os

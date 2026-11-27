@@ -181,8 +181,8 @@ def prepare(owner, out):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument('--owner')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--owner', default='q2-nova', help='component release owner (default: q2-nova)')
     mode.add_argument('--stock-assets', type=lambda p: Path(p).resolve())
     parser.add_argument('--out', type=lambda p: Path(p).resolve(), required=True)
     args = parser.parse_args()

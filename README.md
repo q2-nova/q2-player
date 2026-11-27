@@ -51,12 +51,15 @@ On an x86-64 Linux host with Python 3.12+ and GitHub CLI, the same lock can
 fetch and verify the component assets for a local build:
 
 ```sh
-python3 tools/fetch-build-tools.py --owner q2-nova --out build/rc-inputs
+python3 tools/fetch-build-tools.py --out build/rc-inputs
 ```
 
 The command reads checksums from the selected releases, relocates the SDK, and
 records the resolved source commits and asset hashes under its output directory.
-Use a fresh output directory. Private component repositories require read access.
+Use a fresh output directory. App forks use the q2-nova component releases by
+default. Set the Actions repository variable `Q2_COMPONENTS_OWNER` or pass
+`--owner` locally to choose another component owner. Private component
+repositories require read access.
 
 ## License
 
