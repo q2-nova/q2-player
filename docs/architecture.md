@@ -120,3 +120,20 @@ messages and keeps detailed failure codes in diagnostics. **Settings →
 System → About → Report a Problem** records a diagnostic marker when that
 feature is enabled. Playback timing instrumentation is opt-in through
 `[diagnostics] playtrace = true`.
+
+## Design documents
+
+| Document | Covers |
+| --- | --- |
+| [State machines](state-machines.md) | The pure machines in `crates/machines`, what each property is proved or tested by, and the owner of each shared resource |
+| [Server status](server-status.md) | Navidrome reachability, low-priority traffic and the art cache limits |
+| [UX norms](ux-norms.md) | Error, page-state and hierarchy rules, and how to review a hierarchy change |
+| [Wheel and jogging](interaction.md) | Wheel detents, list acceleration, letter mode, seeking and Center cycles |
+| [Settings](settings.md) | Settings pages, their config keys and shared control behavior |
+| [Equalizer](equalizer.md) | Graphic EQ, the AutoEQ catalog and the processing chain |
+| [ReplayGain](replaygain.md) | Volume Normalization rules and how they compare with other players |
+| [Headphone output](audio.md) and [Bluetooth](bluetooth.md) | Codec controls, and the Bluetooth stack and codecs |
+| [Internet radio](radio.md) | Stations, stream transport, song titles and scrobbling |
+| [Audiobooks and podcasts](audiobooks.md) | Local books, the Audiobookshelf client contracts and listening positions |
+| [Telemetry](telemetry.md), [playback trace](playtrace.md) and [debug symbols](debug-symbols.md) | Opt-in reports, the playback trace format and resolving addresses |
+| [Target builds](target-build.md) | Building for the Q2, code size, MSA code and benchmarks |

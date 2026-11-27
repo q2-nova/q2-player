@@ -75,6 +75,104 @@ of the same source under `qemu-mipsel`, and requires equal decoded samples,
 pixels and UI checksums. `tests/perf/test_pgo.py` runs it when
 `Q2_PGO_PLAIN_BUILD`, `Q2_PGO_BUILD`, `Q2_SDK` and `Q2_QEMU_USER` are set.
 
+## Code size
+
+On the Q2 code size is resident memory: after the first frame
+[`platform/resident.rs`](../crates/q2nd/src/platform/resident.rs) locks the
+executable's code and its libraries, because the root is xz
+squashfs in 128 KiB blocks and an evicted code page costs a block's
+decompression when it next runs. The release profile in
+[`Cargo.toml`](../Cargo.toml) trades size for speed per crate:
+
+- Fat LTO, one codegen unit, `panic = "abort"`.
+- `opt-level = 3` for q2nd, the symphonia decoders and formats, the image
+  decoders, the font crates and ring. Decoders need it: their inner loops
+  depend on inlining and unrolling that `s` gives up. q2nd stays at 3
+  because generic code is compiled at the opt-level of the crate that
+  instantiates it, and q2nd instantiates tokio's tasks, serde's
+  deserializers and the image pipeline.
+- `opt-level = "s"` for every other dependency and for subsonic.
+- SQLite is built without FTS3, FTS5, R\*Tree, DBSTAT, STAT4, soundex and
+  extension loading
+  ([`q2/toolchain/libsqlite3-flags`](../q2/toolchain/libsqlite3-flags)), at
+  `-Os` because libsqlite3-sys follows the package's opt-level. A host test
+  checks `PRAGMA compile_options` against the flags file.
+- The same type deserialized two ways is compiled twice. `Config` is read
+  only through `Config::from_toml`; follow that pattern for large
+  `#[derive(Deserialize)]` types.
+
+Not all of the executable's code is locked. GNU ld collects the code that
+only `--bench` (`q2nd::perf`) and `--script` run into a `.q2tools` section
+([`link/q2tools.ld`](../crates/q2nd/link/q2tools.ld), given by `build.rs`
+for Q2 builds), which `resident.rs` leaves unlocked. The standard library is
+built with `backtrace-trace-only`, so std carries no symbolizer and a panic
+backtrace (printed only with `RUST_BACKTRACE`) lists raw addresses; resolve
+them with the unstripped executable in `symbols/`. The unwind tables stay
+locked unless the build sets `--cfg q2_unlock_unwind_tables`.
+
+`tools/locked_size.py` computes the locked bytes of a build from its ELF
+sections, as `resident.rs` would lock them. `tools/elf_size.py` writes the
+section size report of each executable.
+
+## MSA code
+
+The X2000 compiler builds q2nd for the `x2000` CPU with MSA, the X2000's
+128-bit SIMD extension. q2-toolchain describes its
+[code generation](https://github.com/q2-nova/q2-toolchain/blob/main/docs/x2000-toolchain.md)
+and the [X2000 instruction costs](https://github.com/q2-nova/q2-toolchain/blob/main/docs/x2000-msa.md).
+Hand-written kernels take one of two forms:
+
+- a C leaf compiled by the SDK's GCC with `-mmsa` behind a bounded FFI
+  boundary: [`vendor/eq/stereo.c`](../crates/q2nd/vendor/eq/stereo.c) for
+  the equalizer and [`vendor/pcm/convert.c`](../crates/q2nd/vendor/pcm/convert.c)
+  for PCM conversion, built by `build.rs`, which sets `q2_eq_msa`;
+- Rust `core::arch::mips` intrinsics inside
+  `#[target_feature(enable = "msa")]` functions, as in
+  [`gfx_msa.rs`](../crates/q2nd/src/gfx_msa.rs) and the vendored decoders.
+  The `stdarch_mips` and `mips_target_feature` features are enabled only for
+  `target_arch = "mips"` (`main.rs`); host builds use the stable toolchain
+  of `rust-toolchain.toml`.
+
+Rules for an MSA routine:
+
+- Keep the portable routine. Host builds and tests run it, and the tests
+  compare the two.
+- Check the kernel's capability bit (`HWCAP_MIPS_MSA`) once and cache it,
+  as `audio/eq_msa.rs` `available()` does.
+- Make the boundary one call per block, row or packet, never per sample or
+  pixel.
+- Keep output bit-identical to the portable routine: the same arithmetic
+  order, no fused multiply-add unless the portable path uses it, the same
+  rounding and saturation. Test both on generated input, including lengths
+  that are not a multiple of the vector width, extremes and NaN where they
+  can occur. Where correctness beyond identical outputs matters, such as
+  index arithmetic or bounds, prove it with Kani as `crates/machines` does.
+
+## Benchmarks
+
+`q2nd --bench SPEC.json` runs one isolated, deterministic workload
+([`perf.rs`](../crates/q2nd/src/perf.rs)) and prints one JSON line with its
+CPU time and an output hash (`sample_md5`, `pixel_md5` or UI checksums). It
+never reads user configuration or opens audio hardware.
+[`tests/perf/fixtures.py`](../tests/perf/fixtures.py) generates the audio
+and artwork inputs with FFmpeg. A new kind must contain only the work it
+measures: the comparison tools read the process's whole CPU time, so finer
+timings go in the result (`decode_us`, `conversion_us`). `tools/pgo.py
+compare` runs the codec, image, EQ, UI and chart cases on two builds under
+`qemu-mipsel` and requires equal hashes.
+
+Stage timers in the vendored MP3, FLAC and ALAC decoders are compiled only
+with `--cfg q2_mp3_profile`, `q2_flac_profile` or `q2_alac_profile`; the
+`decode` case then reports them as `mp3_profile`, `flac_profile` or
+`alac_profile`. `q2_pcm_scalar` and `q2_gfx_scalar` build the portable
+paths in place of the MSA kernels. `build-target.py` sets the compiler flags
+itself and passes no extra `--cfg`, so it builds none of these variants.
+
+On-device comparisons of two builds, and the emulator hash check that comes
+first, are q2-factory gates (`gates/perf/bench_ab.py` and
+`gates/perf/bench_qemu.py`, described in
+[qualifying a change](https://github.com/q2-nova/q2-factory/blob/main/docs/qualifying-a-change.md#performance)).
+
 ## Startup read-ahead
 
 The installed image reads ahead the parts of q2nd that Home and first Play
