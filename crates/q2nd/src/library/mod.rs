@@ -2127,6 +2127,7 @@ mod tests {
     /// A db closure that reaches for `Library::db()` would wait on the mutex
     /// its own thread holds: debug builds refuse it; the worker carries on.
     #[test]
+    #[cfg_attr(panic = "abort", ignore = "recovers from a panic; a panic = \"abort\" build, as on the Q2, aborts")]
     fn a_db_closure_may_not_take_the_library_mutex() {
         let (lib, _) = music_binding_fixture();
         let inner = lib.clone();

@@ -1,0 +1,53 @@
+# Tests that tools/target-tests.py run does not run under qemu-user, with the
+# reason each cannot pass there. Each passes on the host; none has been run on
+# the Q2 itself. Names are EXECUTABLE::TEST as target-tests.py prints them; a
+# name that matches no runnable test fails the run, so the list cannot go stale.
+# Ways to run them on the target: https://github.com/q2-nova/q2-player/issues/19
+
+[[skip]]
+reason = """Runs the test executable, or a host binutils tool on it, as a child \
+process. qemu-user cannot execute a nested MIPS executable without a \
+binfmt_misc handler, and the host strip and nm do not read MIPS ELF."""
+tests = [
+    "q2nd-bin-q2nd::audio::output::tests::saturated_general_pool_cannot_delay_arrival_and_scan_worker_retires",
+    "q2nd-bin-q2nd::audio::readahead::async_tests::local_card_lane_progresses_with_general_blocking_pool_saturated",
+    "q2nd-bin-q2nd::diagnostics::crash::tests::actual_fatal_signal_preserves_signal_exit_and_numeric_marker",
+    "q2nd-bin-q2nd::diagnostics::crash::tests::actual_panic_keeps_original_context_without_payload_and_ack_follows_durable_import",
+    "q2nd-bin-q2nd::diagnostics::crash::tests::capacity_refuses_more_contexts_but_disable_always_works",
+    "q2nd-bin-q2nd::diagnostics::crash::tests::existing_signal_owner_is_not_replaced",
+    "q2nd-bin-q2nd::diagnostics::crash::tests::later_context_does_not_relabel_prior_panic_and_off_never_writes",
+    "q2nd-bin-q2nd::diagnostics::import_tests::full_outbox_does_not_disable_delivery_and_ack_retries_original_context_import",
+    "q2nd-bin-q2nd::diagnostics::import_tests::interrupted_owned_pending_import_is_recovered_without_duplicate_or_relabel",
+    "q2nd-bin-q2nd::diagnostics::import_tests::opt_out_cleanup_failure_still_disables_process_exit_capture_authorization",
+    "q2nd-bin-q2nd::diagnostics::tests::actual_capture_boundary_preserves_old_context_then_opt_out_discards_backlog",
+    "q2nd-bin-q2nd::library::tests::local_rows_settings_and_fonts_progress_with_general_pool_saturated",
+    "q2nd-bin-q2nd::playtrace::tests::async_fifo_waits_for_writer_close_rearms_without_idle_dumps_and_aborts_cleanly",
+    "q2nd-bin-q2nd::rt::tests::timers_wake_the_thread_once_and_async_work_never_stalls",
+    "q2nd-bin-q2nd::tailscale::fixture_tests::generated_owner_lifecycle_census",
+    "subsonic-lib-subsonic::audiobookshelf_browse::stream::tests::stalled_browse_does_not_occupy_document_workers_and_cancel_closes_connections",
+    "subsonic-lib-subsonic::radio::france::wire_tests::metadata_has_independent_capacity_when_shared_http_decoders_are_busy",
+]
+
+[[skip]]
+reason = """Configures a pseudo-terminal. Under qemu-user for MIPS, tcgetattr \
+and tcsetattr on a pseudo-terminal fail with ENOTTY."""
+tests = [
+    "q2nd-bin-q2nd::bluetooth::uart::tests::bytes_pass_unchanged_in_both_directions_and_poll_reports_them",
+    "q2nd-bin-q2nd::bluetooth::uart::tests::error_counts_and_modem_lines_fail_cleanly_where_the_tty_has_none",
+    "q2nd-bin-q2nd::bluetooth::uart::tests::opens_raw_at_the_initial_rate_and_retunes",
+]
+
+[[skip]]
+reason = """Checks a child's RLIMIT_DATA. Under qemu-user, setrlimit of \
+RLIMIT_DATA succeeds and getrlimit then reads unlimited."""
+tests = [
+    "q2nd-bin-q2nd::platform::process::tests::data_limit_reaches_the_child",
+    "q2nd-bin-q2nd::tailscale::tests::disabled_worker_never_spawns_and_enabled_child_keeps_go_limits",
+]
+
+[[skip]]
+reason = """Expects spawning a missing program to fail. Under qemu-user, \
+glibc's posix_spawn of a missing program returns success."""
+tests = [
+    "q2nd-bin-q2nd::tailscale::spawn::tests::failed_exec_and_cancelled_queued_spawn_leave_owner_joinable",
+]

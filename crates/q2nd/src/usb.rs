@@ -298,6 +298,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(panic = "abort", ignore = "recovers from a panic; a panic = \"abort\" build, as on the Q2, aborts")]
     fn panicking_preparation_releases_busy_and_does_not_launch_helper() {
         let (root,drive)=setup();
         std::fs::write(root.join("udc/test/state"),"configured").unwrap();

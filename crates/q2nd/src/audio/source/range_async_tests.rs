@@ -111,6 +111,7 @@ async fn audiobook_pause_preserves_pending_response_and_bounded_prefetch() {
 }
 
 #[tokio::test]
+#[cfg_attr(panic = "abort", ignore = "recovers from a panic; a panic = \"abort\" build, as on the Q2, aborts")]
 async fn audiobook_async_panic_and_abort_publish_closed() {
     for panic in [false,true] {
         let worker=Worker::new(Arc::new(move |_,_|Box::pin(async move {

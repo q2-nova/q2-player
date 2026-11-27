@@ -399,7 +399,9 @@ mod tests {
         assert!(text[0].1 > 4096);
         let unwind = file_sections(&blocking, &file, &[".eh_frame_hdr", ".eh_frame"]).unwrap();
         assert_eq!(unwind.len(), 2);
-        assert_eq!(file_sections(&blocking, &file, &[".q2tools"]), Some(vec![]));
+        // build.rs links Q2 builds with link/q2tools.ld, which gathers .q2tools.
+        let tools = file_sections(&blocking, &file, &[".q2tools"]).unwrap();
+        assert_eq!(tools.len(), usize::from(cfg!(target_arch = "mips")));
         let not_elf = std::fs::File::open("/proc/self/maps").unwrap();
         assert_eq!(file_sections(&blocking, &not_elf, &[".text"]), None);
     }

@@ -449,6 +449,7 @@ mod tests {
         assert_eq!(writer.error(4), None);
     }
     #[test]
+    #[cfg_attr(panic = "abort", ignore = "recovers from a panic; a panic = \"abort\" build, as on the Q2, aborts")]
     fn worker_panic_rejects_pending_and_future_barriers_instead_of_retaining_ack_forever() {
         let (source, entered, release) = delayed();
         source.panic.store(true, Ordering::Relaxed);

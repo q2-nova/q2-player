@@ -1,5 +1,5 @@
 # Unit tests (docs/testing.md): the Rust workspace and the Python tests on
-# the host.
+# the host, and the Rust tests built for the Q2 and run under qemu-mipsel.
 name: Tests
 
 on:
@@ -42,3 +42,50 @@ jobs:
       - name: Python tests under tests/ and tools/
         run: python3 tools/run-tests.py
 
+  target:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Admit the locked SDK, compiler and QEMU releases
+        env:
+          GH_TOKEN: ${{ secrets.Q2_COMPONENTS_READ_TOKEN || github.token }}
+          COMPONENTS_OWNER: ${{ vars.Q2_COMPONENTS_OWNER || 'q2-nova' }}
+        run: python3 tools/fetch-build-tools.py --owner "$COMPONENTS_OWNER" --out build/rc-inputs
+      - name: Install the QEMU runtime libraries
+        run: |
+          mapfile -t runtime < <(jq -r '.files[].runtime_dependencies[].package' build/rc-inputs/qemu/qemu-artifact.json | sort -u)
+          for name in "${runtime[@]}"; do
+            [[ "$name" =~ ^[a-z0-9][a-z0-9+.-]*(:amd64)?$ ]]
+          done
+          sudo apt-get update
+          sudo apt-get install -y "${runtime[@]}"
+      - name: Install the OS Rust toolchain
+        run: |
+          nightly=$(jq -er .rust_toolchain build/rc-inputs/q2-os/os/sources.json)
+          rustup toolchain install "$nightly" --profile minimal --component rust-src
+      - name: Build the tests for the Q2
+        run: |
+          inputs="$PWD/build/rc-inputs"
+          python3 tools/target-tests.py build --sdk "$inputs/sdk/mipsel-buildroot-linux-gnu_sdk-buildroot" \
+            --toolchain-repo "$inputs/q2-toolchain" --compiler-work "$inputs/compiler" \
+            --os-repo "$inputs/q2-os" --jobs 4 --out build/target-tests
+      - name: Run the tests under qemu-mipsel
+        run: |
+          inputs="$PWD/build/rc-inputs"
+          python3 tools/target-tests.py run --sdk "$inputs/sdk/mipsel-buildroot-linux-gnu_sdk-buildroot" \
+            --qemu-user "$inputs/qemu/bin/qemu-mipsel" --jobs 4 --out build/target-tests-run q2=build/target-tests
+      - name: Summarize the target run
+        if: always()
+        run: |
+          if [ -f build/target-tests-run/result.json ]; then
+            jq '{tests, skipped: (.skipped | length), passed, failed}' build/target-tests-run/result.json >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: target-tests-result
+          path: build/target-tests-run/result.json
+          if-no-files-found: ignore

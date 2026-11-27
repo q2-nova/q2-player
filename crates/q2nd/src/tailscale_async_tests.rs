@@ -88,6 +88,7 @@ async fn stalled_localapi_uses_no_blocking_worker_and_cancellation_closes_socket
     std::fs::remove_dir_all(root).unwrap();
 }
 #[tokio::test]
+#[cfg_attr(panic = "abort", ignore = "recovers from a panic; a panic = \"abort\" build, as on the Q2, aborts")]
 async fn supervisor_panic_joins_children_before_restart_and_preserves_stop() {
     let fixture=Fixture::new();let mut owner=fixture.owner();
     until(||fixture.pids("cli-pids").len()==1).await;

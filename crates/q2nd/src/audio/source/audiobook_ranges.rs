@@ -420,6 +420,7 @@ mod tests {
             })
     }
     #[test]
+    #[cfg_attr(panic = "abort", ignore = "recovers from a panic; a panic = \"abort\" build, as on the Q2, aborts")]
     fn worker_panic_and_short_response_report_errors_instead_of_hanging() {
         crate::audio::callback::test_scope(|| {
         let (tx, rx) = mpsc::channel();

@@ -410,6 +410,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(panic = "abort", ignore = "recovers from a panic; a panic = \"abort\" build, as on the Q2, aborts")]
     fn early_drop_joins_font_worker_and_finish_propagates_panic() {
         use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
         // A load whose result arrives through the same channel the pool job uses.
