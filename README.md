@@ -22,6 +22,8 @@ The check builds the native simulator, generates a short audiobook, plays it, pa
 
 See [simulator prerequisites and checks](tests/e2e/README.md) and the [browser demo](web-demo/README.md). The [component lock](component-lock.json) selects exact revisions in the q2-nova repositories. The simulator uses generated media and needs no Q2 hardware.
 
+[Tests](docs/testing.md) describes the host tests, the target tests under QEMU and the CI that runs them.
+
 ## Accounts and stations
 
 Settings live in the card's `Q2Mainline/config.toml`. For Last.fm

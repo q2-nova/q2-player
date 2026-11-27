@@ -443,7 +443,7 @@ mod tests {
     /// synced-cover path), hot (writers' new names only in the first N shard
     /// directories). Counts only.
     #[test]
-    #[ignore]
+    #[ignore = "needs a mounted exFAT image in Q2_GENERATED_TEST_ROOT"]
     fn exfat_stress() {
         use md5::Digest;
         // Counts of operations: 32 bits are enough, and the Q2 has no 64-bit atomics.

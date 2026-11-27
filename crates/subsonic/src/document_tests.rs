@@ -306,7 +306,7 @@ fn limits_bound_records_skeleton_and_document() {
 /// in 32 KiB pieces against the earlier whole-text `Value` parse. Host only;
 /// run with --release --ignored --nocapture.
 #[test]
-#[ignore]
+#[ignore = "a host measurement, run by hand with --release"]
 fn streamed_parse_time() {
     let song = |i: usize| format!(r#"{{"id":"s{i:021}","parent":"al{i:020}","isDir":false,"title":"Generated title {i}","album":"Generated album {}","artist":"Generated artist {}","track":3,"year":2015,"genre":"Tidewater","coverArt":"mf-s{i:021}_0","size":35454321,"contentType":"audio/flac","suffix":"flac","starred":"2026-11-21T05:20:08.82848537Z","duration":241,"bitRate":917,"path":"a/b/c.flac","created":"2026-11-21T05:08:53.337680984Z","albumId":"al{i:020}","artistId":"ar{i:020}","type":"music","bpm":0,"comment":"","sortName":"x","mediaType":"song","musicBrainzId":"","isrc":[],"genres":[{{"name":"Tidewater"}}],"replayGain":{{"trackGain":-6.5}},"channelCount":2,"samplingRate":44100,"bitDepth":16,"moods":[],"artists":[{{"id":"ar1","name":"A"}}],"displayArtist":"A","albumArtists":[],"displayAlbumArtist":"A","contributors":[],"displayComposer":"","explicitStatus":""}}"#, i / 12, i / 120);
     let songs = (0..5000).map(song).collect::<Vec<_>>().join(",");

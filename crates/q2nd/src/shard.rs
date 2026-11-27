@@ -601,7 +601,7 @@ mod tests {
     /// Host-filesystem cost of moving a generated 6,000-file cover cache.
     /// `cargo test -p q2nd shard::tests::migration_cost -- --ignored --nocapture`
     #[test]
-    #[ignore]
+    #[ignore = "a host measurement, run by hand"]
     fn migration_cost_on_a_generated_6000_file_tree() {
         let paths = fixture("shard-cost");
         let root = paths.art_cache();

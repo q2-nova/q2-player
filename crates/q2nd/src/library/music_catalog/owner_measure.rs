@@ -30,7 +30,7 @@ fn report(name: &str, started: Instant, before: (u64, u64), lib: &Library, extra
 }
 
 #[test]
-#[ignore]
+#[ignore = "run by tests/perf/sync_host_measure.py"]
 fn measure_sync_through_proxy() {
     let Ok(base) = std::env::var("Q2ND_SYNC_PROXY") else { return };
     let abs = std::env::var("Q2ND_SYNC_ABS").is_ok_and(|v| v == "1");

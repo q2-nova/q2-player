@@ -33,7 +33,7 @@ class CustomStudioArchive(unittest.TestCase):
 
 class GeneratedReplay(unittest.TestCase):
     def test_exact_hash_and_switch_are_required_before_creating_output(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build/perf") as temporary:
+        with tempfile.TemporaryDirectory() as temporary:
             out=Path(temporary) / "fixture"
             for step,digest,runtime in [(0,"a"*64,"/tmp/q2-custom-studio-test"),
                                         (4,"not-a-hash","/tmp/q2-custom-studio-test"),

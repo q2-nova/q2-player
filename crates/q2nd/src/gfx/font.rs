@@ -500,7 +500,7 @@ mod tests {
     /// The stock firmware's font fills in what Open Sans lacks: set
     /// Q2ND_STOCK_FONT to release/assets/default/raw/fonts/default.ttf.
     #[test]
-    #[ignore]
+    #[ignore = "needs the stock firmware font in Q2ND_STOCK_FONT"]
     fn stock_font_covers_cjk() {
         let path = std::env::var("Q2ND_STOCK_FONT").expect("Q2ND_STOCK_FONT");
         let mut f = Fonts::load(&crate::rt::Blocking::dedicated_thread(), &[Path::new(&path)]).unwrap();

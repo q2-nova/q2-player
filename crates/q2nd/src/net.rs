@@ -646,7 +646,7 @@ mod tests {
 
     /// Against a real wpa_supplicant: tests/e2e/wpa-test.sh starts one.
     #[tokio::test]
-    #[ignore]
+    #[ignore = "needs a running wpa_supplicant: tests/e2e/wpa-test.sh"]
     async fn wpa_supplicant_round_trip() {
         use owner::{Backend, ensure_network, wait_for_wpa, wpa_ok};
         let b = backend::System::new(PathBuf::from("unused-generated-helper"), ctrl_paths());

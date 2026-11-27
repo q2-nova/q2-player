@@ -1850,7 +1850,7 @@ mod tests {
     /// stored 5,000-song Favorites copy parsed as it is read. Host only, with
     /// the file in the kernel's cache. Run with --ignored --nocapture.
     #[test]
-    #[ignore]
+    #[ignore = "a host measurement, run by hand"]
     fn browse_reads_by_page_cache_size() {
         let b = crate::rt::Blocking::dedicated_thread();
         let dir = crate::library::generated_test_directory("sqlite-cache");

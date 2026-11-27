@@ -1,0 +1,44 @@
+# Unit tests (docs/testing.md): the Rust workspace and the Python tests on
+# the host.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install the repository toolchain
+        run: rustup toolchain install
+      - name: Fetch locked Cargo sources
+        run: cargo fetch --locked
+      - name: Workspace tests
+        env:
+          CARGO_BUILD_JOBS: '4'
+        run: cargo test --workspace --locked --offline
+
+  python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Python tests under tests/ and tools/
+        run: python3 tools/run-tests.py
+
