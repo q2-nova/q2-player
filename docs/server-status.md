@@ -123,6 +123,59 @@ reported to telemetry) and after a server document of 256 KiB or more. The
 heap uses one malloc arena and a fixed 128 KiB mmap threshold, so large
 transient buffers such as cover decodes return to the kernel when freed.
 
+### Measuring memory on the host
+
+Two headless runs measure the player's memory over generated libraries
+served by `tests/ui/ux_fault_fixture.py`:
+
+```sh
+cc -O2 -shared -fPIC -o build/heapcount.so tests/perf/heapcount.c -ldl
+python3 tests/perf/document_memory.py --binary build/native-test-target/debug/q2nd --label NAME
+python3 tests/perf/coverflow_memory.py --binary build/native-test-target/debug/q2nd [--albums 3000]
+```
+
+- `document_memory.py` browses Artists, a large playlist, Favorite Songs
+  and Albums (2,000 artists, 5,000 playlist songs, 2,000 starred songs and
+  3,000 albums by default) twice, with `heapcount.so` preloaded. Per script
+  step it reports the live heap, the heap peak since the previous step
+  (every allocation counted), the glibc arena, decoded art and RSS.
+  `--play` adds playing the playlist; `--screen-off S` adds the screen-off
+  trim.
+- `coverflow_memory.py` scrolls Cover Flow past `--covers` albums and
+  reports what stays resident after it closes and what the trim releases.
+
+Each run is a measurement, not a comparison. Across runs of the same
+binary and library the live heap at a step repeats within about 40 KiB and
+the peak within about 200 KiB (it depends on when concurrent work
+allocates), so one run describes a binary to that resolution; timings vary
+more. The numbers are the host's (x86-64 pointers
+and allocator); a record's pointers and lengths are half as large on the
+Q2, and decoded-art bytes are the same. Results are in `result.json` under
+`build/perf/`.
+
+## Sync requests and bytes
+
+`tests/perf/sync_host_measure.py` runs the ignored Rust test
+`measure_sync_through_proxy` through a counting proxy: the album catalog
+built twice (full, then unchanged) and, with `--abs`, every Audiobookshelf
+library synced twice and its stored pages compared with the server's. Per
+phase it reports requests, status codes and body bytes by endpoint, the time
+spent upstream, and the player's database rows and WAL bytes written.
+
+```sh
+python3 tests/perf/sync_host_measure.py --generated 300 --abs --out build/sync/NAME.json
+python3 tests/perf/sync_host_measure.py --url http://127.0.0.1:4533 --user q2 --password q2test
+```
+
+`--generated N` starts the official Navidrome image, pinned by digest, with
+N generated albums of three tracks; `--abs` adds the generated
+Audiobookshelf of the [spoken journey](../tests/e2e/README.md). Both run on
+internal Podman networks and are removed at the end. `--url` names a
+Navidrome that already holds a generated library. Request and byte
+counts are exact for one server version and library and stand in for the
+radio time a sync costs on the Q2; times are descriptive. `--tree` runs
+another checkout's test against the same servers.
+
 ## Diagnostics
 
 - UX recorder: `server-failure` (priority and class of each counted
