@@ -120,6 +120,7 @@ jobs:
 
   draft:
     if: inputs.mode == 'stock-draft'
+    concurrency: q2-stock-draft
     needs: compose
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -152,6 +153,10 @@ jobs:
           printf '%s  verified/update.tar\n' "$package_sha" | sha256sum --check --strict
           if gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "A release or draft already exists for $version" >&2
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$version" >/dev/null 2>&1; then
+            echo "A Git tag already exists for $version" >&2
             exit 1
           fi
           printf 'Stock Q2 candidate qualified on a physical device.\n\nPackage SHA-256: %s\n' "$package_sha" > draft-notes.txt
