@@ -15,8 +15,13 @@ release build it profiles q2nd in the emulator (`tools/pgo.py profile`, see
 [the target build](target-build.md#profile-guided-release-build)) and builds
 with that profile. `tools/release-candidate.py check-profile` refuses a
 receipt from another source commit or compiler. The boot result records the
-q2nd receipt and the downloaded TSRS daemon's receipt under `pgo`. The paired artifact
-remains in Actions for reuse. The prerelease contains
+q2nd receipt and the downloaded TSRS daemon's receipt under `pgo`. It then
+records the startup read-ahead blocks of the release q2nd
+(`tools/startup-profile.py`, see
+[the target build](target-build.md#startup-read-ahead)) beside it, and
+checks that the composed image's `artifact.json` holds the read-ahead
+ranges for that q2nd. The paired artifact, with
+`startup-read-ahead/profile.json`, remains in Actions for reuse. The prerelease contains
 `update.tar` labelled QEMU emulator rehearsal only, its boot result, corresponding player source,
 `q2nd-symbols.tar.gz` and their checksums. Keep this
 emulator rehearsal off physical devices. Manual dispatch runs the generated

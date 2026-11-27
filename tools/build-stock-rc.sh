@@ -21,6 +21,8 @@ python3 "$os/os/compose_stock.py" image --assets "$inputs/q2-os-assets" \
   --app "$PWD/build/paired-player/q2nd" --tsrsd "$inputs/tsrs" \
   --tsrs-source "$inputs/tsrs-source" --release-tag "$version" \
   --qemu-user "$inputs/qemu/bin/qemu-mipsel" --output "$image"
+jq -e --arg sha "$(jq -r .artifacts.q2nd.sha256 build/paired-player/result.json)" \
+  '.startup_read_ahead.app_sha256 == $sha' "$image/artifact.json" > /dev/null
 python3 tools/verify-package.py pack-stock --os-repo "$os" \
   --component-lock "$inputs/component-lock.json" --image "$image" \
   --version "$version" --installed-version "$starting_version" --out "$package"

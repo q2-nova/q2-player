@@ -75,6 +75,35 @@ of the same source under `qemu-mipsel`, and requires equal decoded samples,
 pixels and UI checksums. `tests/perf/test_pgo.py` runs it when
 `Q2_PGO_PLAIN_BUILD`, `Q2_PGO_BUILD`, `Q2_SDK` and `Q2_QEMU_USER` are set.
 
+## Startup read-ahead
+
+The installed image reads ahead the parts of q2nd that Home and first Play
+need, as BOOT-002 of the q2-os specification requires.
+`tools/startup-profile.py` records those parts for one build and writes
+them beside it, where the image builder reads them:
+
+```sh
+python3 tools/startup-profile.py --player build/target-player/q2nd \
+  --sdk RELOCATED_SDK --qemu-user QEMU_MIPSEL --os-repo Q2_OS_CHECKOUT
+```
+
+It runs the deployed q2nd under `qemu-mipsel` with the same runner as
+`tools/pgo.py`, in `--drm-test` mode with the OS checkout's
+`os/platform/display.c` drawing into host memory. For three generated songs
+it seeds a card, waits for Home with the song paused, plays it, and records
+which 128 KiB blocks of the executable are resident at each point. The
+result is `build/target-player/startup-read-ahead/profile.json`: the union
+of the blocks, the executable's SHA-256 and size, and the digests of the
+producer, emulator, bridge and consumer. Before writing it, the tool admits
+it with the OS checkout's `os/install/startup_read_ahead.py`. The image
+builder, given `--app build/target-player/q2nd`, checks it again against the
+installed executable, records the ranges in `artifact.json` under
+`startup_read_ahead`, and adds them to root init. Without the file, root
+init reads the whole executable. Both release workflows run the tool after
+the release build and check that the composed image records it. A host that
+cannot read `/proc/PID/pagemap` gets a profile with `blocks` `null`, and the
+image reads the whole executable.
+
 ## Emulator diagnostic build
 
 The stall sampler is an emulator diagnostic only. It records the stack of an

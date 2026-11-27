@@ -1,4 +1,4 @@
-name: PGO controls
+name: PGO and startup profile controls
 
 on:
   pull_request:
@@ -7,6 +7,9 @@ on:
       - '.github/workflows/player-rc.yml'
       - '.github/workflows/stock-rc.yml'
       - 'tools/pgo.py'
+      - 'tools/startup-profile.py'
+      - 'tools/build-stock-rc.sh'
+      - 'release-lock.json'
       - 'tools/build-target.py'
       - 'tools/release-candidate.py'
       - 'tests/perf/**'
@@ -31,6 +34,11 @@ jobs:
           sudo apt-get install -y ffmpeg
       - name: Training set, receipts and release workflow order
         run: python3 -m unittest tests/perf/test_pgo.py -v
+      - name: Startup profile format against the locked q2-os consumer
+        run: |
+          git clone --quiet --depth 1 --branch "$(jq -er '."q2-os"' release-lock.json)" \
+            https://github.com/q2-nova/q2-os build/q2-os
+          Q2_OS_REPO="$PWD/build/q2-os" python3 -m unittest tests/perf/test_startup_profile.py -v
       - name: Generate the training fixtures twice
         run: |
           python3 tests/perf/fixtures.py --out build/fixtures-a

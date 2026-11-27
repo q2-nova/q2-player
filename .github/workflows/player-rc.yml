@@ -17,7 +17,7 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests/release -p 'test_*.py' -v
-      - run: python3 -m unittest tests/perf/test_pgo.py -v
+      - run: python3 -m unittest tests/perf/test_pgo.py tests/perf/test_startup_profile.py -v
 
   build:
     if: github.event_name == 'push' && github.ref_type == 'tag'
@@ -80,6 +80,13 @@ jobs:
             --profile-use build/pgo/q2nd.profdata --out build/paired-player
           jq -e '.profile == "release" and .release_eligible == true and .features.q2nd == []' build/paired-player/result.json
           python3 tools/release-candidate.py check-profile --build-result build/paired-player/result.json --source "$GITHUB_SHA"
+      - name: Record the startup read-ahead blocks of the paired q2nd
+        run: |
+          python3 tools/startup-profile.py --player "$PWD/build/paired-player/q2nd" \
+            --sdk build/rc-inputs/sdk/mipsel-buildroot-linux-gnu_sdk-buildroot \
+            --qemu-user build/rc-inputs/qemu/bin/qemu-mipsel --os-repo build/rc-inputs/q2-os
+          jq '{decision, blocks: (.blocks | if . then map_values(length) else . end)}' \
+            build/paired-player/startup-read-ahead/profile.json >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: q2nd-profile
@@ -102,6 +109,8 @@ jobs:
             --tsrsd "$inputs/tsrs" --tsrs-source "$inputs/tsrs-source" \
             --release-tag V0.01 --qemu-user "$inputs/qemu/bin/qemu-mipsel" \
             --output "$inputs/q2-os/build/rc-image"
+          jq -e --arg sha "$(jq -r .artifacts.q2nd.sha256 build/paired-player/result.json)" \
+            '.startup_read_ahead.app_sha256 == $sha' "$inputs/q2-os/build/rc-image/artifact.json"
       - name: Pack, read back and boot the exact emulator archive
         id: package
         run: |

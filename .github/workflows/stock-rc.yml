@@ -73,6 +73,11 @@ jobs:
           jq -e '.profile == "release" and .release_eligible == true and .features.q2nd == []' build/paired-player/result.json
           python3 tools/release-candidate.py check-profile --build-result build/paired-player/result.json \
             --source "$STOCK_PLAYER_COMMIT"
+      - name: Record the startup read-ahead blocks of the paired q2nd
+        run: |
+          python3 tools/startup-profile.py --player "$PWD/build/paired-player/q2nd" \
+            --sdk build/stock-rc-inputs/sdk/mipsel-buildroot-linux-gnu_sdk-buildroot \
+            --qemu-user build/stock-rc-inputs/qemu/bin/qemu-mipsel --os-repo build/stock-rc-inputs/q2-os
       - name: Prepare, pack, read back and boot the exact stock archive
         run: bash tools/build-stock-rc.sh
       - name: Attach the checked bytes to a new private draft

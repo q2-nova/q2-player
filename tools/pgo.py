@@ -40,6 +40,7 @@ FIXTURES = ROOT / 'tests/perf/fixtures.py'
 TRAINING_VERSION = 2
 COVER_ITERATIONS = 2  # training decodes of each full-size cover per size
 SYSROOT = 'mipsel-buildroot-linux-gnu/sysroot'
+CPU = 'P5600'  # the qemu-mipsel CPU model for output checks and the startup profile
 BUILD_INPUTS = ('sdk', 'toolchain-repo', 'compiler-work', 'os-repo')
 
 # Named hot paths: a regular expression over the `::`-joined defining path
@@ -72,6 +73,11 @@ def driver(toolchain):
     if not path.is_file():
         raise SystemExit(f'{path}: the q2-toolchain checkout has no PGO driver')
     return load(path, 'q2_pgo')
+
+
+def user_prefix(qemu_user, sdk, cpu=CPU):
+    """The command prefix that runs a target program under qemu-mipsel with the SDK's libraries."""
+    return [str(Path(qemu_user).resolve()), '-cpu', cpu, '-L', str(Path(sdk).resolve() / SYSROOT)]
 
 
 def fixtures(directory):
@@ -313,7 +319,7 @@ def compare(args):
         raise SystemExit(f'{out} exists')
     out.mkdir(parents=True)
     fx = fixtures(args.fixtures.resolve())
-    prefix = [str(args.qemu_user.resolve()), '-cpu', args.cpu, '-L', str(args.sdk.resolve() / SYSROOT)]
+    prefix = user_prefix(args.qemu_user, args.sdk, args.cpu)
     env = dict(os.environ, Q2ND_RESOURCE_ROOT=str(resources(out / 'resources')), Q2ND_ALSA_DEVICE='q2nd-fake')
     env.pop('LLVM_PROFILE_FILE', None)
 
@@ -371,7 +377,7 @@ def main():
     q.add_argument('--pgo', type=Path, required=True, help='build-target.py output with --profile-use')
     q.add_argument('--sdk', type=Path, required=True)
     q.add_argument('--qemu-user', type=Path, required=True)
-    q.add_argument('--cpu', default='P5600')
+    q.add_argument('--cpu', default=CPU)
     q.add_argument('--fixtures', type=Path, default=ROOT / 'build/perf/fixtures')
     q.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
