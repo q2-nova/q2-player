@@ -127,7 +127,6 @@ feature is enabled. Playback timing instrumentation is opt-in through
 | --- | --- |
 | [State machines](state-machines.md) | The pure machines in `crates/machines`, what each property is proved or tested by, and the owner of each shared resource |
 | [Server status](server-status.md) | Navidrome reachability, low-priority traffic and the art cache limits |
-| [UX norms](ux-norms.md) | Error, page-state and hierarchy rules, and how to review a hierarchy change |
 | [Wheel and jogging](interaction.md) | Wheel detents, list acceleration, letter mode, seeking and Center cycles |
 | [Settings](settings.md) | Settings pages, their config keys and shared control behavior |
 | [Equalizer](equalizer.md) | Graphic EQ, the AutoEQ catalog and the processing chain |

@@ -59,8 +59,7 @@ internal copy (STORAGE-003) 3 s after the last change, by one ordered writer
   Display the brightness, Connections the Wi-Fi state, and Bluetooth the
   controller state.
 - An option that has no use while its parent switch is off appears only
-  while the switch is on and keeps its value while hidden
-  ([UX norms](ux-norms.md#hierarchy-and-interaction)).
+  while the switch is on and keeps its value while hidden.
 
 ## Scrobbling
 
