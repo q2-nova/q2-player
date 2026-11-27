@@ -17,6 +17,7 @@ mod artwork_storage;
 mod book_ranges;
 mod convert;
 mod jpeg_check;
+mod library;
 mod lossless_check;
 mod mp3_check;
 mod offline_download;
@@ -481,6 +482,9 @@ fn run_with(blocking: &crate::rt::Blocking, path: &Path) -> Result<(),String> {
             .map_err(|e| e.to_string()),
         "config-startup" => crate::config::startup_benchmark(blocking, &spec.scratch,spec.iterations,&spec.scene),
         "music-binding" => crate::library::db::Db::startup_binding_benchmark_ordinary( &spec.scratch,spec.iterations,&spec.scene),
+        "library-db" => library::db(blocking, &spec),
+        "library-sync" => library::sync(blocking, &spec),
+        "app-startup" => library::startup(blocking, &spec),
         "ui" => crate::ui::benchmark(blocking, &spec.scratch,spec.iterations),
         "ui-check" => crate::ui::span_check(),
         "ui-parts" => crate::ui::parts_benchmark(blocking, spec.iterations),

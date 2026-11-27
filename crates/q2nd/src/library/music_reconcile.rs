@@ -17,7 +17,7 @@ pub(crate) struct Review {
     pub missing: Vec<MissingSong>,
 }
 
-pub(super) fn media_changed(old: &Song, new: &Song) -> bool {
+pub(crate) fn media_changed(old: &Song, new: &Song) -> bool {
     old.size != new.size
         || old.suffix != new.suffix
         || old.content_type != new.content_type
