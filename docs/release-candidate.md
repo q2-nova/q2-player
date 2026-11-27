@@ -83,6 +83,11 @@ python3 tools/verify-package.py boot-stock --os-repo "$OS" \
   --native-qemu --out build/stock-root-smoke
 ```
 
+For an image built from an earlier player commit in this checkout’s history,
+pass that commit with `--player-commit` and its exact build receipt with
+`--paired-build-receipt`. The receipt distinguishes the OS checkout used
+to cross-build the app from the OS source used to compose the stock image.
+
 The direct-kernel smoke reads the exact archive and checks normal installed
 root readiness with disposable guest storage. The normal image has no
 simulator player probe, so the result leaves player readiness unset. Keep

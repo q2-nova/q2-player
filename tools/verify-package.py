@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -147,18 +148,54 @@ def stock_root(image, pins, source, version):
         raise ValueError('stock filesystem release metadata differs from the selected sources')
 
 
+
+def stock_player_source(head, requested):
+    if requested is None:
+        return head
+    if not re.fullmatch(r'[a-f0-9]{40}', requested):
+        raise ValueError('stock player source must be a full commit SHA')
+    try:
+        git(ROOT, 'merge-base', '--is-ancestor', requested, head)
+    except subprocess.CalledProcessError as error:
+        raise ValueError('stock player source must be an ancestor of the checkout') from error
+    return requested
+
+
+def paired_build(path, source, manifest, pins):
+    raw = path.read_bytes()
+    record = json.loads(raw)
+    artifacts = record.get('artifacts', {})
+    components = record.get('components', {})
+    if (record.get('passed') is not True or record.get('target') != 'mipsel-q2-os-linux-gnu'
+            or record.get('source_commit') != source
+            or components.get('q2-toolchain') != pins['q2-toolchain']
+            or artifacts.get('q2nd', {}).get('sha256') != manifest['app_sha256']
+            or artifacts.get('q2-portal', {}).get('sha256') != manifest['portal_helper']['sha256']
+            or artifacts.get('q2-portal', {}).get('symbols_receipt_sha256')
+            != manifest['portal_helper'].get('symbols_receipt_sha256')):
+        raise ValueError('installed stock binaries do not match their paired target build')
+    return {'receipt_sha256': sha(raw), 'components': components}
+
 def pack_stock(args, pins, fmt):
     image = args.image.resolve()
-    source = git(ROOT, 'rev-parse', 'HEAD')
+    head = git(ROOT, 'rev-parse', 'HEAD')
+    source = stock_player_source(head, args.player_commit)
+    if source != head and args.paired_build_receipt is None:
+        raise ValueError('retained player source requires its paired target build receipt')
     if git(ROOT, 'status', '--porcelain'):
         raise ValueError('use a clean player checkout at the paired application build commit')
     manifest_path = image / 'artifact.json'
     manifest = json.loads(manifest_path.read_text())
     stock_image(image, manifest, pins, source, args.version)
+    paired = None
+    if args.paired_build_receipt is not None:
+        paired = paired_build(args.paired_build_receipt, source, manifest, pins)
     report = write_package(args, image, manifest, fmt)
     report.update(profile='stock-qualification-candidate', hardware_qualified=False,
                   player_commit=source, components=pins, image_manifest_sha256=sha(manifest_path.read_bytes()),
                   starting_version=args.installed_version)
+    if paired is not None:
+        report['paired_application_build'] = paired
     with (args.out / 'result.json').open('x') as f:
         json.dump(report, f, indent=2)
         f.write('\n')
@@ -283,6 +320,9 @@ def main():
         package.add_argument('--image', type=Path, required=True)
         package.add_argument('--version', required=True)
         package.add_argument('--installed-version', required=True)
+        if name == 'pack-stock':
+            package.add_argument('--player-commit', help='exact retained player commit in this checkout history')
+            package.add_argument('--paired-build-receipt', type=Path, help='receipt from the retained player and portal build')
     for name in ('boot', 'boot-stock'):
         emulator = sub.add_parser(name)
         emulator.add_argument('--package', type=Path, required=True)

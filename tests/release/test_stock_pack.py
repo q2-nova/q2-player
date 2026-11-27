@@ -56,3 +56,22 @@ class StockPack(unittest.TestCase):
             record, digest = VERIFY['boot_scope'](args, PINS)
             self.assertEqual(record['components'], PINS)
             self.assertEqual(digest, VERIFY['sha'](receipt.read_bytes()))
+
+    def test_retained_pair_records_build_os_separately_from_composition_os(self):
+        pins = {**PINS, 'q2-toolchain': '4' * 40}
+        build_components = {'q2-toolchain': pins['q2-toolchain'], 'q2-os': '5' * 40}
+        image = {'app_sha256': 'a' * 64, 'portal_helper': {
+            'sha256': 'b' * 64, 'symbols_receipt_sha256': 'c' * 64}}
+        record = {'passed': True, 'target': 'mipsel-q2-os-linux-gnu', 'source_commit': PLAYER,
+                  'components': build_components, 'artifacts': {
+                      'q2nd': {'sha256': 'a' * 64}, 'q2-portal': image['portal_helper'].copy()}}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'result.json'
+            path.write_text(json.dumps(record))
+            built = VERIFY['paired_build'](path, PLAYER, image, pins)
+            self.assertEqual(built['components'], build_components)
+            self.assertNotEqual(built['components']['q2-os'], pins['q2-os'])
+            record['artifacts']['q2-portal']['sha256'] = 'd' * 64
+            path.write_text(json.dumps(record))
+            with self.assertRaisesRegex(ValueError, 'paired target build'):
+                VERIFY['paired_build'](path, PLAYER, image, pins)
