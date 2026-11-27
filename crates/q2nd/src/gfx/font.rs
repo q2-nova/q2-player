@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn emoji_render_from_the_emoji_fallback_and_joiners_take_no_space() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../os/overlay/usr/share/fonts/noto-emoji/NotoEmoji-Regular.ttf");
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fonts/noto-emoji/NotoEmoji-Regular.ttf");
         let mut f = Fonts::load(&crate::rt::Blocking::dedicated_thread(), &[path.as_path()]).unwrap();
         // A test example: ice-cream emoji around a playlist name.
         for ch in ['🍦', '😀', '❤'] {

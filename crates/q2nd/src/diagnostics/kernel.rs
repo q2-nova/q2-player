@@ -287,8 +287,10 @@ mod tests {
         .unwrap();
         let payload = b"SYNTHETIC_PRIVATE_PSTORE_CANARY\x00\xff";
         std::fs::write(root.join("pstore/dmesg-ramoops-0"), payload).unwrap();
-        let helper = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../os/install/integration/sbin/q2-pstore");
+        let helper = std::env::var_os("Q2_PSTORE_COLLECTOR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/q2-pstore"));
         let mut child = std::process::Command::new("sh")
             .args([
                 "-c",
