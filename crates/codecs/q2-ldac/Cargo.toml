@@ -1,0 +1,17 @@
+[package]
+name = "q2-ldac"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "LDAC encoder for an A2DP source: safe wrapper over AOSP libldac (vendored C)"
+publish = false
+build = "build.rs"
+
+[features]
+# Builds libldac's 32-bit fixed-point path (-D_32BIT_FIXED_POINT) instead of
+# the default single-precision float path. The two produce different bits, so
+# the committed encoder vectors are checked for the default build only.
+fixed-point = []
+
+[build-dependencies]
+cc = "=1.10.0"

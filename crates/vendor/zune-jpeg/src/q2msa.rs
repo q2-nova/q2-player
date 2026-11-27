@@ -1,0 +1,745 @@
+// [q2 patch] This file is not part of upstream zune-jpeg (README.q2.md).
+
+//! MSA (MIPS SIMD, 128-bit) kernels for the Q2's X2000: YCbCr to RGB over a
+//! row, and the horizontal, vertical and combined chroma upsamplers.
+//!
+//! Each entry gives the bytes of the scalar code it replaces
+//! (`color_convert::scalar::ycbcr_to_rgb_inner_16_scalar::<false>` as
+//! `worker::color_convert_ycbcr` applies it to a row, and
+//! `upsampler::scalar::upsample_{horizontal,vertical,hv}`) for every `i16`
+//! input, in a build without overflow checks, where the scalar `i16`
+//! arithmetic wraps as the `.h` lanes do.
+//!
+//! The kernels run only on MIPS when the kernel publishes `HWCAP_MIPS_MSA`
+//! (`msa()`); every other target and a Q2 without the capability run the
+//! scalar code. `--cfg q2_jpeg_no_msa` builds a MIPS binary that never
+//! enters them.
+
+use core::sync::atomic::{AtomicU8, Ordering};
+
+use crate::color_convert::scalar::ycbcr_to_rgb_inner_16_scalar;
+use crate::upsampler::scalar;
+
+/// 0: not looked up; 1: scalar; 2: MSA.
+static MSA: AtomicU8 = AtomicU8::new(0);
+
+/// Whether the kernels use MSA: on MIPS when the kernel publishes
+/// `HWCAP_MIPS_MSA` (and `set_msa` has not turned it off), never elsewhere.
+#[inline]
+pub(crate) fn msa() -> bool {
+    match MSA.load(Ordering::Relaxed) {
+        0 => {
+            let present = detect();
+            MSA.store(if present { 2 } else { 1 }, Ordering::Relaxed);
+            present
+        }
+        state => state == 2
+    }
+}
+
+/// `Some(false)`: scalar code; `Some(true)`: MSA where the processor has it;
+/// `None`: look the capability up again at the next use.
+pub(crate) fn set_msa(want: Option<bool>) {
+    let state = match want {
+        None => 0,
+        Some(want) => {
+            if want && detect() {
+                2
+            } else {
+                1
+            }
+        }
+    };
+    MSA.store(state, Ordering::Relaxed);
+}
+
+#[cfg(all(target_arch = "mips", target_os = "linux", feature = "std", not(q2_jpeg_no_msa)))]
+fn detect() -> bool {
+    extern "C" {
+        fn getauxval(kind: core::ffi::c_ulong) -> core::ffi::c_ulong;
+    }
+    const AT_HWCAP: core::ffi::c_ulong = 16;
+    // Linux MIPS UAPI: HWCAP_MIPS_MSA = 1 << 1, published when the kernel
+    // saves MSA context.
+    const HWCAP_MIPS_MSA: core::ffi::c_ulong = 1 << 1;
+    // SAFETY: getauxval takes no pointers and only reads the process's
+    // auxiliary vector; an unknown key returns 0.
+    unsafe { getauxval(AT_HWCAP) & HWCAP_MIPS_MSA != 0 }
+}
+
+#[cfg(not(all(target_arch = "mips", target_os = "linux", feature = "std", not(q2_jpeg_no_msa))))]
+fn detect() -> bool {
+    false
+}
+
+#[cfg(target_arch = "mips")]
+mod kernel {
+    use core::arch::mips::*;
+    use core::mem::transmute as cast;
+
+    use crate::color_convert::scalar::{
+        CB_CF, CR_CF, C_G_CB_COEF_2, C_G_CR_COEF_1, YUV_RND, Y_CF
+    };
+
+    /// `vshf.b` controls that interleave R, G and B bytes; an index below 16
+    /// selects from the instruction's last operand, 16 and above from the
+    /// middle one (always B here).
+    #[repr(C, align(16))]
+    struct Shuffles([[i8; 16]; 4]);
+    static SHUFFLES: Shuffles = Shuffles([
+        // From G (16..) and R: G5 R6 G6 R7 G7 R8 G8 R9 G9 R10 G10.
+        [21, 6, 22, 7, 23, 8, 24, 9, 25, 10, 26, 0, 0, 0, 0, 0],
+        // From R0 G0 .. R7 G7: R0 G0 B0 .. R4 G4 B4 R5.
+        [0, 1, 16, 2, 3, 17, 4, 5, 18, 6, 7, 19, 8, 9, 20, 10],
+        // From the first control's result: G5 B5 R6 G6 B6 .. R10 G10.
+        [0, 21, 1, 2, 22, 3, 4, 23, 5, 6, 24, 7, 8, 25, 9, 10],
+        // From R8 G8 .. R15 G15: B10 R11 G11 B11 .. R15 G15 B15.
+        [26, 6, 7, 27, 8, 9, 28, 10, 11, 29, 12, 13, 30, 14, 15, 31]
+    ]);
+
+    /// Two `i16` lanes `[even, odd]` repeated four times.
+    #[target_feature(enable = "msa")]
+    #[inline]
+    fn pairs(even: i16, odd: i16) -> v8i16 {
+        let word = ((odd as u16 as u32) << 16) | (even as u16 as u32);
+        // SAFETY: register-only; MSA comes from the target feature.
+        unsafe { cast(__msa_fill_w(word as i32)) }
+    }
+
+    /// The splat constants of the colour conversion, built once per row.
+    struct Color {
+        /// `[Y_CF, CR_CF]`: red from (y, cr) pairs.
+        red: v8i16,
+        /// `[Y_CF, C_G_CR_COEF_1]`: green's y and cr terms from (y, cr) pairs.
+        green_cr: v8i16,
+        /// `[0, C_G_CB_COEF_2]`: green's cb term from (y, cb) pairs.
+        green_cb: v8i16,
+        /// `[Y_CF, CB_CF]`: blue from (y, cb) pairs.
+        blue: v8i16,
+        /// `YUV_RND` in each word.
+        round: v4i32,
+        /// -128 in each halfword.
+        bias: v8i16,
+        shuffles: [v16i8; 4]
+    }
+
+    /// One channel of four pixels: the sum that the scalar code shifts,
+    /// shifted, then saturated to -256..=255 so that the halfword pack keeps
+    /// it. `sum` already holds the rounding constant and every product.
+    #[target_feature(enable = "msa")]
+    #[inline]
+    fn narrow(sum: v4i32) -> v4i32 {
+        // SAFETY: register-only; MSA comes from the target feature.
+        unsafe { __msa_sat_s_w::<8>(__msa_srai_w::<14>(sum)) }
+    }
+
+    /// Eight pixels of each channel as halfwords -256..=255, in (r, g, b)
+    /// order, from eight y, cb and cr values.
+    ///
+    /// The scalar code computes, in `i32`, `(y * Y_CF + YUV_RND + products)
+    /// >> 14` with `cb - 128` and `cr - 128` wrapped to `i16`. `dotp_s.w`
+    /// multiplies adjacent `i16` lanes into one `i32` lane, so interleaving
+    /// y with cr (and y with cb) gives each sum without widening. No sum
+    /// leaves `i32`: |y * 16384| <= 2^29, and the largest coefficient sum is
+    /// 29032 * 32768 < 2^30.
+    #[target_feature(enable = "msa")]
+    #[inline]
+    fn half(y: v8i16, cb: v8i16, cr: v8i16, k: &Color) -> (v8i16, v8i16, v8i16) {
+        // SAFETY: register-only; MSA comes from the target feature.
+        unsafe {
+            let cb = __msa_addv_h(cb, k.bias);
+            let cr = __msa_addv_h(cr, k.bias);
+            // Even lanes y, odd lanes chroma; `r` holds pixels 0..4, `l` 4..8.
+            let (ycr_r, ycr_l) = (__msa_ilvr_h(cr, y), __msa_ilvl_h(cr, y));
+            let (ycb_r, ycb_l) = (__msa_ilvr_h(cb, y), __msa_ilvl_h(cb, y));
+            let red_r = narrow(__msa_dpadd_s_w(k.round, ycr_r, k.red));
+            let red_l = narrow(__msa_dpadd_s_w(k.round, ycr_l, k.red));
+            let green_r = narrow(__msa_dpadd_s_w(__msa_dpadd_s_w(k.round, ycr_r, k.green_cr), ycb_r, k.green_cb));
+            let green_l = narrow(__msa_dpadd_s_w(__msa_dpadd_s_w(k.round, ycr_l, k.green_cr), ycb_l, k.green_cb));
+            let blue_r = narrow(__msa_dpadd_s_w(k.round, ycb_r, k.blue));
+            let blue_l = narrow(__msa_dpadd_s_w(k.round, ycb_l, k.blue));
+            (
+                __msa_pckev_h(cast(red_l), cast(red_r)),
+                __msa_pckev_h(cast(green_l), cast(green_r)),
+                __msa_pckev_h(cast(blue_l), cast(blue_r))
+            )
+        }
+    }
+
+    /// Sixteen bytes 0..=255 from two vectors of eight halfwords -256..=255.
+    #[target_feature(enable = "msa")]
+    #[inline]
+    fn bytes(low: v8i16, high: v8i16) -> v16i8 {
+        // SAFETY: register-only; MSA comes from the target feature.
+        unsafe {
+            __msa_pckev_b(cast(__msa_maxi_s_h::<0>(high)), cast(__msa_maxi_s_h::<0>(low)))
+        }
+    }
+
+    /// Converts 16 pixels and writes 48 bytes of interleaved RGB.
+    ///
+    /// # Safety
+    /// `y`, `cb` and `cr` must be readable for 16 `i16` and `out` writable
+    /// for 48 bytes.
+    #[target_feature(enable = "msa")]
+    #[inline]
+    unsafe fn rgb16(y: *const i16, cb: *const i16, cr: *const i16, out: *mut u8, k: &Color) {
+        // SAFETY: the caller's contract covers the two 16-byte loads per
+        // plane and the three 16-byte stores; MSA `ld`/`st` accept any
+        // alignment. MSA comes from the target feature.
+        unsafe {
+            let (y, cb, cr) = (y as *mut u8, cb as *mut u8, cr as *mut u8);
+            let (r0, g0, b0) = half(__msa_ld_h::<0>(y), __msa_ld_h::<0>(cb), __msa_ld_h::<0>(cr), k);
+            let (r1, g1, b1) = half(__msa_ld_h::<16>(y), __msa_ld_h::<16>(cb), __msa_ld_h::<16>(cr), k);
+            let (r, g, b) = (bytes(r0, r1), bytes(g0, g1), bytes(b0, b1));
+            // R and G interleaved: pixels 0..8 and 8..16.
+            let (rg_low, rg_high) = (__msa_ilvr_b(g, r), __msa_ilvl_b(g, r));
+            let rg_mid = __msa_vshf_b(k.shuffles[0], g, r);
+            __msa_st_b::<0>(__msa_vshf_b(k.shuffles[1], b, rg_low), out);
+            __msa_st_b::<16>(__msa_vshf_b(k.shuffles[2], b, rg_mid), out);
+            __msa_st_b::<32>(__msa_vshf_b(k.shuffles[3], b, rg_high), out);
+        }
+    }
+
+    /// One row of `width` pixels to `width * 3` bytes of RGB: whole groups
+    /// of 16 pixels, then the last 16 pixels of the row again when the width
+    /// is not a multiple of 16 (the scalar caller converts that group into
+    /// a temporary and copies it; the bytes are the same).
+    ///
+    /// Returns false and writes nothing when the row is shorter than 16
+    /// pixels or a slice is shorter than the row.
+    #[target_feature(enable = "msa")]
+    pub(super) fn rgb_row(y: &[i16], cb: &[i16], cr: &[i16], out: &mut [u8], width: usize) -> bool {
+        let Some(bytes) = width.checked_mul(3) else { return false };
+        if width < 16 || y.len() < width || cb.len() < width || cr.len() < width || out.len() < bytes {
+            return false;
+        }
+        // SAFETY: SHUFFLES is 64 aligned bytes, read as four vectors. Every
+        // group starts at `i` with `i + 16 <= width`, so its 16 `i16` per
+        // plane and its 48 output bytes at `3 * i` are inside the slices
+        // checked above. MSA comes from the target feature.
+        unsafe {
+            let table = SHUFFLES.0.as_ptr() as *mut u8;
+            let k = Color {
+                red: pairs(Y_CF, CR_CF),
+                green_cr: pairs(Y_CF, C_G_CR_COEF_1),
+                green_cb: pairs(0, C_G_CB_COEF_2),
+                blue: pairs(Y_CF, CB_CF),
+                round: __msa_fill_w(YUV_RND as i32),
+                bias: __msa_ldi_h::<-128>(),
+                shuffles: [
+                    __msa_ld_b::<0>(table),
+                    __msa_ld_b::<16>(table),
+                    __msa_ld_b::<32>(table),
+                    __msa_ld_b::<48>(table)
+                ]
+            };
+            let (y, cb, cr, out) = (y.as_ptr(), cb.as_ptr(), cr.as_ptr(), out.as_mut_ptr());
+            let mut i = 0;
+            while i + 16 <= width {
+                rgb16(y.add(i), cb.add(i), cr.add(i), out.add(3 * i), &k);
+                i += 16;
+            }
+            if i < width {
+                let i = width - 16;
+                rgb16(y.add(i), cb.add(i), cr.add(i), out.add(3 * i), &k);
+            }
+        }
+        true
+    }
+
+    /// `3 * a + 2` in wrapping `i16` lanes.
+    #[target_feature(enable = "msa")]
+    #[inline]
+    fn weigh(a: v8i16) -> v8i16 {
+        // SAFETY: register-only; MSA comes from the target feature.
+        unsafe { __msa_addvi_h::<2>(__msa_mulv_h(a, __msa_ldi_h::<3>())) }
+    }
+
+    /// Eight outputs in each of the two rows from eight inputs.
+    ///
+    /// # Safety
+    /// `input`, `near` and `far` must be readable and `top` and `bottom`
+    /// writable for 8 `i16`.
+    #[target_feature(enable = "msa")]
+    #[inline]
+    unsafe fn vertical8(input: *const i16, near: *const i16, far: *const i16, top: *mut i16, bottom: *mut i16) {
+        // SAFETY: the caller's contract covers the three loads and two
+        // stores of 16 bytes; MSA `ld`/`st` accept any alignment. MSA comes
+        // from the target feature.
+        unsafe {
+            let sum = weigh(__msa_ld_h::<0>(input as *mut u8));
+            let first = __msa_addv_h(sum, __msa_ld_h::<0>(near as *mut u8));
+            let second = __msa_addv_h(sum, __msa_ld_h::<0>(far as *mut u8));
+            __msa_st_h::<0>(__msa_srai_h::<2>(first), top as *mut u8);
+            __msa_st_h::<0>(__msa_srai_h::<2>(second), bottom as *mut u8);
+        }
+    }
+
+    /// `scalar::upsample_vertical` without its scratch argument.
+    ///
+    /// A length that is not a multiple of 8 ends with one vector over the
+    /// last 8 elements; it recomputes up to 7 outputs from the same inputs.
+    #[target_feature(enable = "msa")]
+    #[inline]
+    fn vertical(input: &[i16], near: &[i16], far: &[i16], output: &mut [i16]) {
+        assert_eq!(input.len() * 2, output.len());
+        assert_eq!(near.len(), input.len());
+        assert_eq!(far.len(), input.len());
+        let n = input.len();
+        let (top, bottom) = output.split_at_mut(n);
+        if n < 8 {
+            for i in 0..n {
+                let sum = input[i].wrapping_mul(3).wrapping_add(2);
+                top[i] = sum.wrapping_add(near[i]) >> 2;
+                bottom[i] = sum.wrapping_add(far[i]) >> 2;
+            }
+            return;
+        }
+        let (a, b, c) = (input.as_ptr(), near.as_ptr(), far.as_ptr());
+        let (t, u) = (top.as_mut_ptr(), bottom.as_mut_ptr());
+        let last = n - 8;
+        let mut i = 0;
+        // SAFETY: every vector starts at `i <= last = n - 8`, and `n` is the
+        // length of all five slices (`top` and `bottom` are the halves of
+        // `2 * n`). The inputs are not the output, so the last vector's
+        // overlap rewrites the same values.
+        unsafe {
+            while i < last {
+                vertical8(a.add(i), b.add(i), c.add(i), t.add(i), u.add(i));
+                i += 8;
+            }
+            vertical8(a.add(last), b.add(last), c.add(last), t.add(last), u.add(last));
+        }
+    }
+
+    /// Sixteen outputs from the eight inputs at `input + 1` and their two
+    /// neighbours.
+    ///
+    /// # Safety
+    /// `input` must be readable for 10 `i16` and `output` writable for 16.
+    #[target_feature(enable = "msa")]
+    #[inline]
+    unsafe fn horizontal8(input: *const i16, output: *mut i16) {
+        // SAFETY: the caller's contract covers the three 16-byte loads at
+        // elements 0, 1 and 2 and the two 16-byte stores; MSA `ld`/`st`
+        // accept any alignment. MSA comes from the target feature.
+        unsafe {
+            let sum = weigh(__msa_ld_h::<2>(input as *mut u8));
+            let even = __msa_srai_h::<2>(__msa_addv_h(sum, __msa_ld_h::<0>(input as *mut u8)));
+            let odd = __msa_srai_h::<2>(__msa_addv_h(sum, __msa_ld_h::<4>(input as *mut u8)));
+            __msa_st_h::<0>(__msa_ilvr_h(odd, even), output as *mut u8);
+            __msa_st_h::<16>(__msa_ilvl_h(odd, even), output as *mut u8);
+        }
+    }
+
+    /// `scalar::upsample_horizontal` without its unused arguments.
+    ///
+    /// Inputs 1..n-1 each give two outputs from themselves and both
+    /// neighbours. When their count is not a multiple of 8 the last vector
+    /// covers the last 8 of them and recomputes up to 14 outputs from the
+    /// same inputs.
+    #[target_feature(enable = "msa")]
+    #[inline]
+    fn horizontal(input: &[i16], output: &mut [i16]) {
+        assert_eq!(
+            input.len() * 2,
+            output.len(),
+            "Input length is not half the size of the output length"
+        );
+        assert!(
+            output.len() > 4 && input.len() > 2,
+            "Too Short of a vector, cannot upsample"
+        );
+        let n = input.len();
+        output[0] = input[0];
+        output[1] = input[0].wrapping_mul(3).wrapping_add(input[1]).wrapping_add(2) >> 2;
+        if n < 10 {
+            for i in 1..n - 1 {
+                let sum = input[i].wrapping_mul(3).wrapping_add(2);
+                output[2 * i] = sum.wrapping_add(input[i - 1]) >> 2;
+                output[2 * i + 1] = sum.wrapping_add(input[i + 1]) >> 2;
+            }
+        } else {
+            let (a, o) = (input.as_ptr(), output.as_mut_ptr());
+            let last = n - 9;
+            let mut i = 1;
+            // SAFETY: every vector starts at `1 <= i <= last = n - 9`. It
+            // reads input[i - 1 .. i + 9], and `i + 9 <= n`; it writes
+            // output[2 * i .. 2 * i + 16], and `2 * i + 16 <= 2 * n - 2`.
+            // The input is not the output, so the last vector's overlap
+            // rewrites the same values.
+            unsafe {
+                while i < last {
+                    horizontal8(a.add(i - 1), o.add(2 * i));
+                    i += 8;
+                }
+                horizontal8(a.add(last - 1), o.add(2 * last));
+            }
+        }
+        output[2 * n - 2] =
+            input[n - 1].wrapping_mul(3).wrapping_add(input[n - 2]).wrapping_add(2) >> 2;
+        output[2 * n - 1] = input[n - 1];
+    }
+
+    #[target_feature(enable = "msa")]
+    pub(super) fn upsample_vertical(input: &[i16], near: &[i16], far: &[i16], output: &mut [i16]) {
+        vertical(input, near, far, output);
+    }
+
+    #[target_feature(enable = "msa")]
+    pub(super) fn upsample_horizontal(input: &[i16], output: &mut [i16]) {
+        horizontal(input, output);
+    }
+
+    /// `scalar::upsample_hv`: the vertical filter into `scratch`, then the
+    /// horizontal filter on each of its two rows.
+    #[target_feature(enable = "msa")]
+    pub(super) fn upsample_hv(
+        input: &[i16], near: &[i16], far: &[i16], scratch: &mut [i16], output: &mut [i16]
+    ) {
+        assert_eq!(input.len() * 4, output.len());
+        assert!(input.len() * 2 <= scratch.len());
+        let n = input.len();
+        let scratch = &mut scratch[..n * 2];
+        vertical(input, near, far, scratch);
+        let (top, bottom) = output.split_at_mut(n * 2);
+        horizontal(&scratch[..n], top);
+        horizontal(&scratch[n..], bottom);
+    }
+}
+
+/// One row of YCbCr to RGB with MSA. Returns false, having written nothing,
+/// when MSA is off or the row is shorter than 16 pixels; the caller then
+/// runs the scalar code.
+#[inline]
+#[allow(unused_variables)]
+pub(crate) fn rgb_row(y: &[i16], cb: &[i16], cr: &[i16], out: &mut [u8], width: usize) -> bool {
+    #[cfg(target_arch = "mips")]
+    if msa() {
+        // SAFETY: the kernel published MSA for this process, which is all
+        // `kernel::rgb_row` requires of its caller.
+        return unsafe { kernel::rgb_row(y, cb, cr, out, width) };
+    }
+    false
+}
+
+/// The scalar conversion of one row as `worker::color_convert_ycbcr` does
+/// it for RGB output and a width of at least 16: whole groups of 16, then
+/// the row's last 16 pixels through a temporary.
+fn rgb_row_scalar(y: &[i16], cb: &[i16], cr: &[i16], out: &mut [u8], width: usize) {
+    use core::convert::TryInto;
+    let mut temp = [0; 64];
+    let out = &mut out[..width * 3];
+    for (((y, cb), cr), out_c) in y
+        .chunks_exact(16)
+        .zip(cb.chunks_exact(16))
+        .zip(cr.chunks_exact(16))
+        .zip(out.chunks_exact_mut(48))
+    {
+        ycbcr_to_rgb_inner_16_scalar::<false>(
+            y.try_into().unwrap(),
+            cb.try_into().unwrap(),
+            cr.try_into().unwrap(),
+            out_c,
+            &mut 0
+        );
+    }
+    ycbcr_to_rgb_inner_16_scalar::<false>(
+        y[width - 16..width].try_into().unwrap(),
+        cb[width - 16..width].try_into().unwrap(),
+        cr[width - 16..width].try_into().unwrap(),
+        &mut temp,
+        &mut 0
+    );
+    out[(width - 16) * 3..].copy_from_slice(&temp[..48]);
+}
+
+/// `UpSampler` for 2:1 horizontal chroma: MSA when present, else scalar.
+pub(crate) fn upsample_horizontal(
+    input: &[i16], in_near: &[i16], in_far: &[i16], scratch: &mut [i16], output: &mut [i16]
+) {
+    #[cfg(target_arch = "mips")]
+    if msa() {
+        // SAFETY: the kernel published MSA for this process.
+        return unsafe { kernel::upsample_horizontal(input, output) };
+    }
+    scalar::upsample_horizontal(input, in_near, in_far, scratch, output);
+}
+
+/// `UpSampler` for 2:1 vertical chroma: MSA when present, else scalar.
+pub(crate) fn upsample_vertical(
+    input: &[i16], in_near: &[i16], in_far: &[i16], scratch: &mut [i16], output: &mut [i16]
+) {
+    #[cfg(target_arch = "mips")]
+    if msa() {
+        // SAFETY: the kernel published MSA for this process.
+        return unsafe { kernel::upsample_vertical(input, in_near, in_far, output) };
+    }
+    scalar::upsample_vertical(input, in_near, in_far, scratch, output);
+}
+
+/// `UpSampler` for 2:1 chroma in both directions: MSA when present, else
+/// scalar.
+pub(crate) fn upsample_hv(
+    input: &[i16], in_near: &[i16], in_far: &[i16], scratch: &mut [i16], output: &mut [i16]
+) {
+    #[cfg(target_arch = "mips")]
+    if msa() {
+        // SAFETY: the kernel published MSA for this process.
+        return unsafe { kernel::upsample_hv(input, in_near, in_far, scratch, output) };
+    }
+    scalar::upsample_hv(input, in_near, in_far, scratch, output);
+}
+
+/// What `check` compared.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Check {
+    /// Kernel calls compared.
+    pub compared: usize,
+    /// Output values (bytes or `i16`) compared.
+    pub values: usize,
+    /// Whether the entries used MSA.
+    pub msa: bool,
+    /// The first call whose output differed from the scalar code's.
+    pub difference: Option<alloc::string::String>
+}
+
+/// xorshift64*: the generated input of `check`.
+struct Random(u64);
+
+impl Random {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+    fn below(&mut self, n: usize) -> usize {
+        ((self.next() >> 33) as usize) % n
+    }
+    /// A plane of `len` values in one of several ranges. `wide` allows
+    /// values whose scalar arithmetic wraps; builds with overflow checks
+    /// pass false, because the scalar code would panic.
+    fn plane(&mut self, len: usize, wide: bool, limit: i16) -> alloc::vec::Vec<i16> {
+        let kind = self.below(if wide { 6 } else { 4 });
+        let edges = [0i16, 255, 128, 127, 1, 254];
+        let wide_edges = [i16::MIN, i16::MAX, -1, 0, 255, -32641, -32640, 10923, 10922, -10923];
+        (0..len)
+            .map(|_| match kind {
+                // What the decoder passes: 0..=255.
+                0 | 1 => (self.next() >> 40) as i16 & 255,
+                2 => edges[self.below(edges.len())],
+                3 => ((self.next() >> 40) as i16 % limit).wrapping_add(128).clamp(-limit, limit),
+                4 => (self.next() >> 40) as i16,
+                _ => wide_edges[self.below(wide_edges.len())]
+            })
+            .collect()
+    }
+}
+
+/// Runs each dispatching entry and the scalar code it replaces on generated
+/// input and compares every output value: rows of RGB conversion (widths
+/// from 16, also not multiples of 16) and the three upsamplers (lengths
+/// from 3, also not multiples of 8), on decoder-range values, edge values
+/// and, in builds without overflow checks, the whole `i16` range.
+///
+/// With MSA off or absent both sides are the scalar code.
+pub(crate) fn check(seed: u64, rounds: usize) -> Check {
+    use alloc::format;
+    use alloc::vec;
+    let mut random = Random(seed | 1);
+    let wide = !cfg!(debug_assertions);
+    let mut result = Check { compared: 0, values: 0, msa: msa(), difference: None };
+    let note = |result: &mut Check, name: &str, len: usize, round: usize, same: bool, values: usize| {
+        result.compared += 1;
+        result.values += values;
+        if !same && result.difference.is_none() {
+            result.difference = Some(format!("{name} length {len} round {round}"));
+        }
+    };
+    for round in 0..rounds {
+        // RGB rows.
+        let width = match round % 4 {
+            0 => 16 + random.below(64),
+            1 => 16 * (1 + random.below(5)),
+            2 => 16 + random.below(16),
+            _ => 100 + random.below(1200)
+        };
+        let padded = width + random.below(17);
+        let y = random.plane(padded, wide, 32000);
+        let cb = random.plane(padded, wide, 32000);
+        let cr = random.plane(padded, wide, 32000);
+        // Two bytes beyond the row show a write past it.
+        let mut expected = vec![0xA5u8; width * 3 + 2];
+        let mut actual = expected.clone();
+        rgb_row_scalar(&y, &cb, &cr, &mut expected[..width * 3], width);
+        if !rgb_row(&y, &cb, &cr, &mut actual[..width * 3], width) {
+            rgb_row_scalar(&y, &cb, &cr, &mut actual[..width * 3], width);
+        }
+        note(&mut result, "rgb", width, round, expected == actual, width * 3);
+
+        // Upsamplers. 3 * 8000 + 2 + 8000 fits `i16`.
+        let n = match round % 4 {
+            0 => 3 + random.below(40),
+            1 => 8 * (1 + random.below(12)),
+            2 => 8 * (1 + random.below(12)) + 2,
+            _ => 100 + random.below(700)
+        };
+        let input = random.plane(n, wide, 8000);
+        let near = random.plane(n, wide, 8000);
+        let far = random.plane(n, wide, 8000);
+
+        let (mut expected, mut actual) = (vec![0i16; n * 2], vec![0i16; n * 2]);
+        scalar::upsample_horizontal(&input, &[], &[], &mut [], &mut expected);
+        upsample_horizontal(&input, &[], &[], &mut [], &mut actual);
+        note(&mut result, "horizontal", n, round, expected == actual, n * 2);
+
+        let (mut expected, mut actual) = (vec![0i16; n * 2], vec![0i16; n * 2]);
+        scalar::upsample_vertical(&input, &near, &far, &mut [], &mut expected);
+        upsample_vertical(&input, &near, &far, &mut [], &mut actual);
+        note(&mut result, "vertical", n, round, expected == actual, n * 2);
+
+        let (mut expected, mut actual) = (vec![0i16; n * 4], vec![0i16; n * 4]);
+        let (mut scratch_expected, mut scratch_actual) = (vec![0i16; n * 2 + 3], vec![0i16; n * 2 + 3]);
+        scalar::upsample_hv(&input, &near, &far, &mut scratch_expected, &mut expected);
+        upsample_hv(&input, &near, &far, &mut scratch_actual, &mut actual);
+        note(
+            &mut result,
+            "hv",
+            n,
+            round,
+            expected == actual && scratch_expected == scratch_actual,
+            n * 6
+        );
+    }
+    result
+}
+
+/// Compares each dispatching entry with the scalar code on every input the
+/// decoder can pass. The IDCT clamps its output to 0..=255 and the
+/// upsamplers keep that range, so that is every `(y, cb, cr)` triple of
+/// 0..=255 for the RGB conversion (65,536 rows of 256 pixels) and every
+/// (sample, neighbour) pair of 0..=255 on each side for the upsamplers.
+///
+/// With MSA off or absent both sides are the scalar code.
+pub(crate) fn check_decoder_range() -> Check {
+    use alloc::format;
+    use alloc::vec;
+    use alloc::vec::Vec;
+    let mut result = Check { compared: 0, values: 0, msa: msa(), difference: None };
+    let ramp: Vec<i16> = (0..256).collect();
+    let (mut expected, mut actual) = (vec![0u8; 768], vec![0u8; 768]);
+    for cb in 0..256i16 {
+        let cb_row = [cb; 256];
+        for cr in 0..256i16 {
+            let cr_row = [cr; 256];
+            rgb_row_scalar(&ramp, &cb_row, &cr_row, &mut expected, 256);
+            if !rgb_row(&ramp, &cb_row, &cr_row, &mut actual, 256) {
+                rgb_row_scalar(&ramp, &cb_row, &cr_row, &mut actual, 256);
+            }
+            result.compared += 1;
+            result.values += 768;
+            if expected != actual && result.difference.is_none() {
+                result.difference = Some(format!("rgb cb {cb} cr {cr}"));
+            }
+        }
+    }
+    for other in 0..256i16 {
+        // Vertical: every sample against `other` in the near row and
+        // against `255 - other` in the far row.
+        let (near, far) = ([other; 256], [255 - other; 256]);
+        // Horizontal: `other` between every pair of samples, so each sample
+        // has `other` on both sides and `other` has each sample on each side.
+        let weave: Vec<i16> = ramp.iter().flat_map(|&sample| [sample, other]).collect();
+
+        let (mut expected, mut actual) = (vec![0i16; 512], vec![0i16; 512]);
+        scalar::upsample_vertical(&ramp, &near, &far, &mut [], &mut expected);
+        upsample_vertical(&ramp, &near, &far, &mut [], &mut actual);
+        let vertical = expected == actual;
+
+        let (mut expected, mut actual) = (vec![0i16; 1024], vec![0i16; 1024]);
+        scalar::upsample_horizontal(&weave, &[], &[], &mut [], &mut expected);
+        upsample_horizontal(&weave, &[], &[], &mut [], &mut actual);
+        let horizontal = expected == actual;
+
+        let (mut expected, mut actual) = (vec![0i16; 1024], vec![0i16; 1024]);
+        let (mut scratch_expected, mut scratch_actual) = (vec![0i16; 512], vec![0i16; 512]);
+        scalar::upsample_hv(&ramp, &near, &far, &mut scratch_expected, &mut expected);
+        upsample_hv(&ramp, &near, &far, &mut scratch_actual, &mut actual);
+        let hv = expected == actual && scratch_expected == scratch_actual;
+
+        result.compared += 3;
+        result.values += 512 + 1024 + 1536;
+        if !(vertical && horizontal && hv) && result.difference.is_none() {
+            result.difference = Some(format!(
+                "upsampling against {other}: vertical {vertical} horizontal {horizontal} hv {hv}"
+            ));
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every decoder-range input through the dispatching entries.
+    #[test]
+    fn dispatch_matches_scalar_on_the_decoder_range() {
+        let result = check_decoder_range();
+        assert_eq!(result.difference, None);
+        assert_eq!(result.compared, 65536 + 3 * 256);
+    }
+
+    /// The dispatching entries against the scalar functions on generated
+    /// input. On a host without MSA both sides are scalar code; the MSA
+    /// kernels are compared by the same function in the emulator and on the
+    /// Q2 (`q2nd --bench` kind `jpeg-check`).
+    #[test]
+    fn dispatch_matches_scalar_on_generated_input() {
+        for seed in [1, 0x5EED, 0xFFFF_FFFF_0000_0001] {
+            let result = check(seed, 400);
+            assert_eq!(result.difference, None);
+            assert_eq!(result.compared, 1600);
+        }
+    }
+
+    /// The row helper is the reference of `check`; compare it with the
+    /// worker's own loop.
+    #[test]
+    fn scalar_row_matches_the_worker() {
+        use crate::decoder::MAX_COMPONENTS;
+        use zune_core::colorspace::ColorSpace;
+        let mut random = Random(77);
+        for width in [16usize, 17, 31, 32, 33, 50, 150, 1200] {
+            let padded = width.div_ceil(16) * 16;
+            let rows = 3;
+            let planes: [alloc::vec::Vec<i16>; 3] = core::array::from_fn(|_| random.plane(padded * rows, false, 32000));
+            let blocks: [&[i16]; MAX_COMPONENTS] = [&planes[0], &planes[1], &planes[2], &[]];
+            let mut expected = alloc::vec![0u8; width * 3 * rows];
+            crate::worker::color_convert(
+                &blocks,
+                ycbcr_to_rgb_inner_16_scalar::<false>,
+                ColorSpace::YCbCr,
+                ColorSpace::RGB,
+                &mut expected,
+                width,
+                padded
+            )
+            .unwrap();
+            let mut actual = alloc::vec![0u8; width * 3 * rows];
+            for row in 0..rows {
+                let at = row * padded..(row + 1) * padded;
+                rgb_row_scalar(
+                    &planes[0][at.clone()],
+                    &planes[1][at.clone()],
+                    &planes[2][at],
+                    &mut actual[row * width * 3..(row + 1) * width * 3],
+                    width
+                );
+            }
+            assert_eq!(expected, actual, "width {width}");
+        }
+    }
+}

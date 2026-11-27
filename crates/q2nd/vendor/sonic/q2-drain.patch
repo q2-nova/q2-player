@@ -1,0 +1,80 @@
+--- a/sonic.c
++++ b/sonic.c
+@@ -9,6 +9,7 @@
+ #include "sonic.h"
+
+ #include <limits.h>
++#include <stdint.h>
+ #include <math.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -17,6 +18,7 @@
+     The following code was used to generate the following sinc lookup table.
+
+     #include <limits.h>
++#include <stdint.h>
+     #include <math.h>
+     #include <stdio.h>
+
+@@ -209,12 +211,14 @@
+      timeError is >= 0 again.  If slowing down, and the error is <= 0.0,
+      then add a pitch period, and play samples unmodified until timeError is <=
+      0 again. */
+-  float samplePeriod; /* How long each output sample takes to play. */
++  /* Q2: small writes must not round nominal 0.5x/2x across an integer
++     grain boundary; keep the play-time ledger at double precision. */
++  double samplePeriod; /* How long each output sample takes to play. */
+   /* How long we expect the entire input buffer to take to play. */
+-  float inputPlayTime;
++  double inputPlayTime;
+   /* The difference in when the latest output sample was played vs when we
+    * wanted.  */
+-  float timeError;
++  double timeError;
+   int oldRatePosition;
+   int newRatePosition;
+   int quality;
+@@ -696,12 +700,14 @@
+       (int)((remainingSamples / speed + stream->numPitchSamples) / rate + 0.5f);
+
+   /* Add enough silence to flush both input and pitch buffers. */
+-  if (!enlargeInputBufferIfNeeded(stream, remainingSamples + 2 * maxRequired)) {
++  if (!enlargeInputBufferIfNeeded(stream, 2 * maxRequired)) {
+     return 0;
+   }
+   memset(stream->inputBuffer + remainingSamples * stream->numChannels, 0,
+          2 * maxRequired * sizeof(short) * stream->numChannels);
+-  stream->numInputSamples += 2 * maxRequired;
++  /* Q2: silence has the same requested tempo as the final real samples.
++     Updating only the sample count changes localSpeed during the drain. */
++  updateNumInputSamples(stream, 2 * maxRequired);
+   if (!sonicWriteShortToStream(stream, NULL, 0)) {
+     return 0;
+   }
+@@ -766,11 +772,13 @@
+     /* Note that the highest number of samples we add into diff will be less
+        than 256, since we skip samples.  Thus, diff is a 24 bit number, and
+        we can safely multiply by numSamples without overflow */
+-    if (bestPeriod == 0 || diff * bestPeriod < minDiff * period) {
++    /* Q2: full-rate refinement can exceed 256 samples per period. Widen
++       comparisons explicitly; unsigned long is only 32 bits on MIPS. */
++    if (bestPeriod == 0 || (uint64_t)diff * bestPeriod < (uint64_t)minDiff * period) {
+       minDiff = diff;
+       bestPeriod = period;
+     }
+-    if (diff * worstPeriod > maxDiff * period) {
++    if ((uint64_t)diff * worstPeriod > (uint64_t)maxDiff * period) {
+       maxDiff = diff;
+       worstPeriod = period;
+     }
+@@ -1156,7 +1164,9 @@
+   localSpeed =
+       stream->numInputSamples * stream->samplePeriod / stream->inputPlayTime;
+   if (localSpeed > 1.00001 || localSpeed < 0.99999) {
+-    changeSpeed(stream, localSpeed);
++    if (!changeSpeed(stream, localSpeed)) {
++      return 0;
++    }
+   } else {
+     if (!copyInputToOutput(stream, stream->numInputSamples)) {
+       return 0;

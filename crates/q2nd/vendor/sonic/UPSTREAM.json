@@ -1,0 +1,16 @@
+{
+  "url": "https://github.com/waywardgeek/sonic",
+  "commit": "b93885dcb70aae50c6f76b0fe4e0868f029a077e",
+  "files": {
+    "sonic.c": "4a21d8086f844e3e68cb4f85961623a69d35da8ca93cf6ea704ccd125e64eaf5",
+    "sonic.h": "a2fc087b68c25141e2fb7ab56e71b111bee79cf311fcc850d492eb574c0eeffe",
+    "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "modifications": [
+    {
+      "patch": "q2-drain.patch",
+      "purpose": "Preserve flush tempo and reservation, propagate allocation failures, keep AMDF products exact on 32-bit targets, and stabilize small-block play-time accounting",
+      "modified_sonic_c_sha256": "d0cb998906a6329b9c9a4145f212b288b5f4e22e8c8914cfee6dc1619bbb1d90"
+    }
+  ]
+}

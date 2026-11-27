@@ -1,0 +1,200 @@
+[workspace]
+resolver = "2"
+members = ["crates/portal-trace", "crates/portal", "crates/subsonic", "crates/machines", "crates/bt", "crates/codecs/q2-aac", "crates/codecs/q2-aptx", "crates/codecs/q2-ldac", "crates/q2nd"]
+# The patched tokio, libsqlite3-sys, symphonia crates and zune-jpeg are dependencies, not members
+# (crates/vendor/*/README.q2.md). build/ holds other source trees (the rustc
+# source of tools/x2000_toolchain.py), which are not part of this workspace.
+exclude = ["build", "crates/vendor/tokio", "crates/vendor/libsqlite3-sys", "crates/vendor/symphonia-bundle-mp3",
+    "crates/vendor/symphonia-bundle-flac", "crates/vendor/symphonia-codec-alac", "crates/vendor/zune-jpeg",
+    "crates/vendor/symphonia-core", "crates/vendor/symphonia-metadata", "crates/vendor/symphonia-format-isomp4",
+    "crates/vendor/symphonia-format-riff"]
+
+[profile.release]
+# The Q2 pins all of the player's code in RAM (platform/resident.rs), so code
+# size is resident memory. The player crate (which instantiates most generic
+# code, including tokio's and the image decoders'), audio and image decoding,
+# fonts and TLS crypto are optimized for speed; the other dependencies for
+# size. Measured on the Q2 against all-speed (V0.109): 1.8 MB less code, with
+# decode, EQ, image and UI benchmarks within noise; all-size saved 4.0 MB but
+# decoded JPEG/WebP 35-44% and MP3 19% slower (docs/status.md).
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.release.package."*"]
+opt-level = "s"
+
+[profile.release.package.subsonic]
+opt-level = "s"
+
+[profile.release.package.symphonia]
+opt-level = 3
+
+[profile.release.package.symphonia-core]
+opt-level = 3
+
+[profile.release.package.symphonia-bundle-flac]
+opt-level = 3
+
+[profile.release.package.symphonia-bundle-mp3]
+opt-level = 3
+
+[profile.release.package.symphonia-codec-aac]
+opt-level = 3
+
+[profile.release.package.symphonia-codec-alac]
+opt-level = 3
+
+[profile.release.package.symphonia-codec-pcm]
+opt-level = 3
+
+[profile.release.package.symphonia-codec-vorbis]
+opt-level = 3
+
+[profile.release.package.symphonia-format-isomp4]
+opt-level = 3
+
+[profile.release.package.symphonia-format-ogg]
+opt-level = 3
+
+[profile.release.package.symphonia-format-riff]
+opt-level = 3
+
+[profile.release.package.symphonia-utils-xiph]
+opt-level = 3
+
+[profile.release.package.image]
+opt-level = 3
+
+[profile.release.package.zune-core]
+opt-level = 3
+
+[profile.release.package.zune-jpeg]
+opt-level = 3
+
+[profile.release.package.png]
+opt-level = 3
+
+[profile.release.package.fdeflate]
+opt-level = 3
+
+[profile.release.package.miniz_oxide]
+opt-level = 3
+
+[profile.release.package.image-webp]
+opt-level = 3
+
+[profile.release.package.ab_glyph]
+opt-level = 3
+
+[profile.release.package.ab_glyph_rasterizer]
+opt-level = 3
+
+[profile.release.package.ttf-parser]
+opt-level = 3
+
+[profile.release.package.owned_ttf_parser]
+opt-level = 3
+
+[profile.release.package.ring]
+opt-level = 3
+
+# Decoding and image work stay fast in debug builds of the simulator.
+[profile.dev.package."*"]
+opt-level = 2
+
+# The demuxers and decoders use the release build's arithmetic in host tests
+# and the simulator: overflow wraps and debug assertions are off, as on the
+# Q2. The damaged-file tests (audio/decoder/corrupt_tests.rs) then fail on
+# the panics the installed player would abort on, not on debug-only checks.
+[profile.dev.package.symphonia-core]
+opt-level = 2
+overflow-checks = false
+debug-assertions = false
+
+[profile.dev.package.symphonia-metadata]
+opt-level = 2
+overflow-checks = false
+debug-assertions = false
+
+[profile.dev.package.symphonia-bundle-mp3]
+opt-level = 2
+overflow-checks = false
+debug-assertions = false
+
+[profile.dev.package.symphonia-bundle-flac]
+opt-level = 2
+overflow-checks = false
+debug-assertions = false
+
+[profile.dev.package.symphonia-codec-aac]
+opt-level = 2
+overflow-checks = false
+debug-assertions = false
+
+[profile.dev.package.symphonia-codec-alac]
+opt-level = 2
+overflow-checks = false
+debug-assertions = false
+
+[profile.dev.package.symphonia-codec-pcm]
+opt-level = 2
+overflow-checks = false
+debug-assertions = false
+
+[profile.dev.package.symphonia-codec-vorbis]
+opt-level = 2
+overflow-checks = false
+debug-assertions = false
+
+[profile.dev.package.symphonia-format-isomp4]
+opt-level = 2
+overflow-checks = false
+debug-assertions = false
+
+[profile.dev.package.symphonia-format-ogg]
+opt-level = 2
+overflow-checks = false
+debug-assertions = false
+
+[profile.dev.package.symphonia-format-riff]
+opt-level = 2
+overflow-checks = false
+debug-assertions = false
+
+[profile.dev.package.symphonia-utils-xiph]
+opt-level = 2
+overflow-checks = false
+debug-assertions = false
+
+# tokio 1.54.1 with the time driver patched to wake once per timer expiry
+# (Product feedback, 2026-11-12). Every crate that depends on tokio gets this copy.
+[patch.crates-io]
+tokio = { path = "crates/vendor/tokio" }
+# libsqlite3-sys 0.39.1 with SQLite's compile options read from
+# q2/toolchain/libsqlite3-flags, so host tests, the simulator and the Q2 build
+# the same SQLite.
+libsqlite3-sys = { path = "crates/vendor/libsqlite3-sys" }
+# symphonia-bundle-mp3 0.5.5 restructured for SIMD with MSA kernels behind the
+# runtime capability check (Product feedback, 2026-11-18; docs/app-size-and-speed.md).
+symphonia-bundle-mp3 = { path = "crates/vendor/symphonia-bundle-mp3" }
+# symphonia-bundle-flac and symphonia-codec-alac 0.5.5 restructured for SIMD
+# with MSA kernels behind the runtime capability check (Product feedback, 2026-11-18;
+# docs/app-size-and-speed.md).
+symphonia-bundle-flac = { path = "crates/vendor/symphonia-bundle-flac" }
+symphonia-codec-alac = { path = "crates/vendor/symphonia-codec-alac" }
+# symphonia-core, symphonia-metadata and symphonia-format-isomp4 0.5.5 with
+# allocations sized by the bytes read, not by a length field, and errors
+# where a damaged file made them panic (code review 2026-11-21;
+# crates/vendor/symphonia-core/README.q2.md).
+symphonia-core = { path = "crates/vendor/symphonia-core" }
+symphonia-metadata = { path = "crates/vendor/symphonia-metadata" }
+symphonia-format-isomp4 = { path = "crates/vendor/symphonia-format-isomp4" }
+# symphonia-format-riff 0.5.5 with limits on an INFO value and on a packet
+# (crates/vendor/symphonia-format-riff/README.q2.md).
+symphonia-format-riff = { path = "crates/vendor/symphonia-format-riff" }
+# zune-jpeg 0.5.15 with MSA colour conversion and chroma upsampling behind the
+# runtime capability check (Product feedback, 2026-11-18; crates/vendor/zune-jpeg/README.q2.md).
+zune-jpeg = { path = "crates/vendor/zune-jpeg" }

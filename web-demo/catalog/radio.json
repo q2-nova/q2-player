@@ -1,0 +1,58 @@
+{
+  "demo-radio-0": {
+    "url": "https://icecast.radiofrance.fr/fip-midfi.mp3?id=openapi",
+    "title": "FIP",
+    "artist": "Radio France",
+    "source": "https://www.radiofrance.fr/fip",
+    "duration": 0,
+    "webAudio": true
+  },
+  "demo-radio-1": {
+    "url": "https://kexp.streamguys1.com/kexp160.aac",
+    "title": "KEXP",
+    "artist": "KEXP",
+    "source": "https://www.kexp.org/mobile/kexp-livestreams/",
+    "duration": 0,
+    "webAudio": true
+  },
+  "demo-radio-2": {
+    "url": "https://somafm.com/groovesalad/",
+    "title": "SomaFM · Groove Salad",
+    "artist": "SomaFM",
+    "source": "https://somafm.com/groovesalad/",
+    "duration": 0,
+    "external": true
+  },
+  "demo-radio-3": {
+    "url": "https://somafm.com/dronezone/",
+    "title": "SomaFM · Drone Zone",
+    "artist": "SomaFM",
+    "source": "https://somafm.com/dronezone/",
+    "duration": 0,
+    "external": true
+  },
+  "demo-radio-4": {
+    "url": "https://somafm.com/secretagent/",
+    "title": "SomaFM · Secret Agent",
+    "artist": "SomaFM",
+    "source": "https://somafm.com/secretagent/",
+    "duration": 0,
+    "external": true
+  },
+  "demo-radio-5": {
+    "url": "https://icecast.radiofrance.fr/fipjazz-midfi.mp3?id=openapi",
+    "title": "FIP Jazz",
+    "artist": "Radio France",
+    "source": "https://www.radiofrance.fr/fip/radio-fipjazz",
+    "duration": 0,
+    "webAudio": true
+  },
+  "demo-radio-6": {
+    "url": "https://icecast.radiofrance.fr/fipgroove-midfi.mp3?id=openapi",
+    "title": "FIP Groove",
+    "artist": "Radio France",
+    "source": "https://www.radiofrance.fr/fip/radio-fipgroove",
+    "duration": 0,
+    "webAudio": true
+  }
+}

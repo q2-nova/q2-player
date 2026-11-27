@@ -1,0 +1,37 @@
+{
+  "revision": "6282acb7846808bbe495568a56287e660d877d87",
+  "measurement": "Reference Audio Analyzer HDM-X",
+  "target": "Harman over-ear 2018",
+  "license": "LICENSE",
+  "normalization": "Only ON LS/HS tokens are interpreted as center-frequency LSC/HSC, following upstream AutoEq issue 586; all numbers unchanged.",
+  "entries": [
+    {
+      "name": "Beyerdynamic Custom Studio (step 1)",
+      "path": "referenceaudioanalyzer/referenceaudioanalyzer_hdm-x_harman_over-ear_2018/Beyerdynamic%20Custom%20Studio%20(step%201)",
+      "export_sha256": "7a61d2c70f385c0495e2700d55d257259267e6854812821913ba7c6d24f8e9ee",
+      "response_csv_sha256": "41490f832fc4f6867da9b4cff115ddc794ef3c169f0918e54dbd971df3ca3afb"
+    },
+    {
+      "name": "Beyerdynamic Custom Studio (step 2)",
+      "path": "referenceaudioanalyzer/referenceaudioanalyzer_hdm-x_harman_over-ear_2018/Beyerdynamic%20Custom%20Studio%20(step%202)",
+      "export_sha256": "e6b9db91ebefb9f160e1f1b6f31f43bb7bef273e49ca95904702a9ca3d037136",
+      "response_csv_sha256": "9d3a5f49c8bfeb9f4c943c2f94ac27dcd1dad844d12981bb86261ebc2af1a07d"
+    },
+    {
+      "name": "Beyerdynamic Custom Studio (step 3)",
+      "path": "referenceaudioanalyzer/referenceaudioanalyzer_hdm-x_harman_over-ear_2018/Beyerdynamic%20Custom%20Studio%20(step%203)",
+      "export_sha256": "dabfff3b42c42c430cd728b8809ef05429ea51ccafed66c341ad143fd4d9c210",
+      "response_csv_sha256": "170e34d2c6c42df75837cde447e1fea88e0ca477be313c69039a6d1108084ecc"
+    },
+    {
+      "name": "Beyerdynamic Custom Studio (step 4)",
+      "path": "referenceaudioanalyzer/referenceaudioanalyzer_hdm-x_harman_over-ear_2018/Beyerdynamic%20Custom%20Studio%20(step%204)",
+      "export_sha256": "b0964b040eac59b293e6875b11a96bb4ea05b7ff8a34bf14e7b19f51603bcefd",
+      "response_csv_sha256": "b911f80a7166fe0794b1e9839cac84466861b9e7adb6e4056755c4d5e11f19a0"
+    }
+  ],
+  "issue": "https://github.com/jaakkopasanen/AutoEq/issues/167",
+  "shelf_export_correction": "https://github.com/jaakkopasanen/AutoEq/issues/586",
+  "measurement_caveat": "Issue 167 includes a January 2022 report questioning the step-1 bass measurement. Q2 preserves the upstream corrected July 2020 measurement/September 2022 export, without claiming independent headphone measurement validation or inventing a replacement curve.",
+  "license_sha256": "840113e023b0f366035187f1065dcd9c96502cfcea135ba78ebf5284a1961b81"
+}

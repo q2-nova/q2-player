@@ -1,0 +1,24 @@
+# Lints for async modules (docs/async-conversion.md, "Mechanical checks").
+# The lists are denied where a module says
+# `#![deny(clippy::disallowed_methods, clippy::disallowed_types)]`: today
+# crates/q2nd/src/rt and crates/q2nd/src/net. Run by `tools/async_gates.py clippy`.
+disallowed-methods = [
+    { path = "std::thread::sleep", reason = "blocks every task of the runtime; use tokio::time::sleep" },
+    { path = "std::thread::spawn", reason = "use rt::Runtime::spawn, or rt::spawn_blocking for blocking work" },
+    { path = "std::thread::Builder::spawn", reason = "use rt::Runtime::spawn, or rt::spawn_blocking for blocking work" },
+    { path = "std::sync::mpsc::Receiver::recv", reason = "blocks the runtime; use a tokio channel" },
+    { path = "std::sync::mpsc::Receiver::recv_timeout", reason = "blocks the runtime; use a tokio channel and tokio::time::timeout" },
+    { path = "std::process::Command::output", reason = "blocks the runtime; use tokio::process::Command" },
+    { path = "std::process::Command::status", reason = "blocks the runtime; use tokio::process::Command" },
+    { path = "std::process::Child::wait", reason = "blocks the runtime; use tokio::process::Command" },
+    { path = "tokio::task::spawn", reason = "use rt::Runtime::spawn so the stall detector times the task", allow-invalid = true },
+    { path = "tokio::task::spawn_blocking", reason = "use rt::spawn_blocking, which hands out the Blocking witness", allow-invalid = true },
+]
+disallowed-types = [
+    { path = "std::net::TcpStream", reason = "blocking socket; use tokio::net" },
+    { path = "std::net::TcpListener", reason = "blocking socket; use tokio::net" },
+    { path = "std::net::UdpSocket", reason = "blocking socket; use tokio::net" },
+    { path = "std::os::unix::net::UnixStream", reason = "blocking socket; use tokio::net" },
+    { path = "std::os::unix::net::UnixDatagram", reason = "blocking socket; use tokio::net" },
+    { path = "std::os::unix::net::UnixListener", reason = "blocking socket; use tokio::net" },
+]

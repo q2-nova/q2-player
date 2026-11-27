@@ -1,0 +1,9 @@
+# Illustrative demo sleeves
+
+The catalog uses four of the original illustrations below as placeholders. Album titles and credits refer to the recording. The illustrations were created for this player.
+
+The built-in ImageGen tool generated one 4 × 2 sheet of original, unlettered record covers for the browser library. Each JPEG is a 320 × 320 crop. The eight subjects in reading order are a wave at sunset, a snowy peak, a lit apartment, a chrome sundial, a satellite dish, a fern cyanotype, a jazz print and a road at dusk.
+
+### Generation prompt
+
+> Create a single record shop sleeve artwork atlas texture, exactly 4 columns by 2 rows of equal square panels filling a 2:1 horizontal image, precise edge-to-edge grid with no borders or gaps. Each panel is a different full-bleed cover for a fictional independent record; no text, no lettering or labels, no logos, no product mockups. Entire image is a flat 2D graphic. Stylish tactile offset printing with bold differentiated palettes and captivating photographic/collage subjects legible at small size. Top row from left: a dark ultramarine ocean wave collaged with an enormous vermilion setting sun on pale apricot paper; a snowy alpine mountain peak in azure and ivory with thin contour-line pattern; warmly glowing orange window in a brutalist night building photographed on grainy violet film; golden sun disk intersecting a tall brushed chromed sculpture on mint-green paper. Bottom row: a lone retro satellite dish against powder pink with magenta offset halftone shadows; an elegant herbarium fern cyanotype on inky blue; sweeping copper and cobalt modernist jazz print with crisp hard-edged rhythms; a deserted dusk road under huge pink and peach clouds shot on analog film. Strong visual design, sophisticated variation. Equal square cells in a strict 4x2 grid.

@@ -1,0 +1,12 @@
+/target
+/build
+__pycache__/
+*.py[cod]
+/.cargo/config.toml
+
+# Local deployment and hosting account state
+.openai/
+.vercel/
+.netlify/
+.wrangler/
+.firebase/

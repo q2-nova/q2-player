@@ -1,0 +1,59 @@
+{
+  "demo-spoken-0": {
+    "url": "https://archive.org/download/wonderfulwizardofoz5_1701_librivox/WonderfulWizaedOz_librivox.m4b",
+    "title": "The Wonderful Wizard of Oz",
+    "artist": "L. Frank Baum",
+    "source": "https://librivox.org/the-wonderful-wizard-of-oz-5-by-l-frank-baum/",
+    "license": "Public domain in the United States",
+    "licenseUrl": "https://librivox.org/the-wonderful-wizard-of-oz-5-by-l-frank-baum/",
+    "duration": 9673
+  },
+  "demo-spoken-1": {
+    "url": "https://archive.org/download/alicesadventure_abridged_pc_librivox/AlicesAdventuresInWonderland_librivox.m4b",
+    "title": "Alice's Adventures in Wonderland (Abridged)",
+    "artist": "Lewis Carroll",
+    "source": "https://librivox.org/alices-adventures-in-wonderland-abridged-version-3-by-lewis-carroll/",
+    "license": "Public domain in the United States",
+    "licenseUrl": "https://librivox.org/alices-adventures-in-wonderland-abridged-version-3-by-lewis-carroll/",
+    "duration": 4087
+  },
+  "demo-spoken-2": {
+    "url": "https://traffic.megaphone.fm/NATIONALAERONAUTICSANDSPACEADMINISTRATION6420899881.mp3",
+    "title": "Encore: A Year In Mars Dune Alpha",
+    "artist": "NASA's Curious Universe",
+    "source": "https://www.nasa.gov/podcasts/curious-universe/encore-a-year-in-mars-dune-alpha/",
+    "license": "NASA media usage guidelines",
+    "licenseUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+    "duration": 1607,
+    "webAudio": true
+  },
+  "demo-spoken-3": {
+    "url": "https://traffic.megaphone.fm/NATIONALAERONAUTICSANDSPACEADMINISTRATION8321387416.mp3",
+    "title": "Encore: Welcome to the Dark Side",
+    "artist": "NASA's Curious Universe",
+    "source": "https://www.nasa.gov/podcasts/curious-universe/roman-dark-side-encore/",
+    "license": "NASA media usage guidelines",
+    "licenseUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+    "duration": 1554,
+    "webAudio": true
+  },
+  "demo-spoken-4": {
+    "url": "https://traffic.megaphone.fm/NATIONALAERONAUTICSANDSPACEADMINISTRATION5999466310.mp3",
+    "title": "Capturing Artemis Return",
+    "artist": "Houston We Have a Podcast",
+    "source": "https://www.nasa.gov/podcasts/houston-we-have-a-podcast/capturing-artemis-return/",
+    "license": "NASA media usage guidelines",
+    "licenseUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+    "duration": 3586,
+    "webAudio": true
+  },
+  "demo-spoken-5": {
+    "url": "https://archive.org/download/time_machine_1201_librivox/TimeMachineV4_librivox.m4b",
+    "title": "The Time Machine",
+    "artist": "H. G. Wells",
+    "source": "https://librivox.org/the-time-machine-by-h-g-wells-2/",
+    "license": "Public domain in the United States",
+    "licenseUrl": "https://librivox.org/the-time-machine-by-h-g-wells-2/",
+    "duration": 13649
+  }
+}

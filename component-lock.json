@@ -1,0 +1,11 @@
+{
+  "linux": "a67b4e3a4f6fa1de1bfae8ab8d6bfea2d80d34a7",
+  "qemu": "8e082e052da25320cccd7356e0a441b863b38879",
+  "llvm-project": "930e0ff819e61ab7894f0a2f216c2291dd58f270",
+  "rust": "3ef0c22cdb86ac42dc6b8f0f1ec36857daa6f2a1",
+  "buildroot": "53a6f8c6065bae077acf4f4eda5f47b9dbf37861",
+  "qemu-os-compat": "702a95e8a6101f83e171423b1e7078b91a77d0b7",
+  "q2-os": "28a5f242b7df1a491772a7c4d7a6ee97fbeec954",
+  "q2-toolchain": "b01db184a9b5fa4f2eb41f82c7f0e9ab6a4d6fb2",
+  "tsrs": "048d0727b41df784b96b758e5cb5e528598be0b4"
+}

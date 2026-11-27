@@ -1,0 +1,73 @@
+#!/bin/sh
+# Archive retained RAM records once per boot before acknowledging them. Never
+# discard RAM evidence if persistent state is unavailable or the archive is full.
+PSTORE=/sys/fs/pstore
+STATE=/state
+PROC=/proc
+RUN=/run/q2
+
+pstore_collect() {
+    [ ! -L "$PSTORE" ] && [ -d "$PSTORE" ] || return 1
+    [ "$(cat "$RUN/state-status" 2>/dev/null)" = ready ] || return 1
+    [ ! -L "$STATE/crash" ] || return 1
+    mkdir -p "$STATE/crash" || return 1
+    chmod 700 "$STATE/crash" || return 1
+    # No retention deletion: a full archive is explicit and needs collection.
+    used=$(du -sk "$STATE/crash") || return 1
+    used=${used%%[[:space:]]*}
+    case "$used" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$used" -lt 16384 ] || return 1
+    count=0
+    bytes=0
+    for file in "$PSTORE"/*; do
+        [ -e "$file" ] || [ -L "$file" ] || continue
+        [ -f "$file" ] && [ ! -L "$file" ] || return 1
+        case "${file##*/}" in dmesg-ramoops-*|console-ramoops-*|pmsg-ramoops-*|ftrace-ramoops-*) ;; *) return 1 ;; esac
+        size=$(wc -c < "$file") || return 1
+        [ "$size" -le 1048576 ] || return 1
+        count=$((count+1))
+        bytes=$((bytes+size))
+        [ "$count" -le 32 ] && [ "$bytes" -le 1048576 ] || return 1
+    done
+    [ "$count" -gt 0 ] || return 0
+    boot=$(cat "$PROC/sys/kernel/random/boot_id") || return 1
+    case "$boot" in ''|*[!0-9a-f-]*) return 1 ;; esac
+    [ "${#boot}" = 36 ] || return 1
+    archive=$STATE/crash/$boot
+    # An interrupted or completed invocation is retained, never replaced.
+    mkdir -m 700 "$archive" || return 1
+    for file in "$PSTORE"/*; do
+        [ -f "$file" ] && [ ! -L "$file" ] || return 1
+        name=${file##*/}
+        (umask 077; set -C; cat "$file" > "$archive/$name") || return 1
+        cmp -s "$file" "$archive/$name" || return 1
+        (cd "$archive" && sha256sum "$name") >> "$archive/SHA256SUMS" || return 1
+    done
+    (cd "$archive" && sha256sum -c SHA256SUMS >/dev/null) || return 1
+    sync || return 1
+    (umask 077; set -C; printf '%s records %s bytes\n' "$count" "$bytes" > "$archive/complete") || return 1
+    sync || return 1
+    # Unlink acknowledges ramoops only after both data and completion are durable.
+    for file in "$PSTORE"/*; do
+        cmp -s "$file" "$archive/${file##*/}" || return 1
+        rm "$file" || return 1
+    done
+}
+
+pstore_main() {
+    umask 077
+    mkdir -p "$PSTORE" "$RUN" || return 1
+    if ! awk -v path="$PSTORE" '$2 == path && $3 == "pstore" { found=1 } END { exit !found }' "$PROC/mounts"; then
+        mount -t pstore -o nosuid,nodev,noexec pstore "$PSTORE" || return 1
+    fi
+    if pstore_collect; then
+        echo collected > "$RUN/pstore-status"
+    else
+        echo retained > "$RUN/pstore-status"
+        return 1
+    fi
+}
+
+if [ "${Q2_PSTORE_SOURCE_ONLY:-0}" != 1 ]; then
+    pstore_main
+fi

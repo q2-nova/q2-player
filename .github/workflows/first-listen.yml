@@ -1,0 +1,58 @@
+name: Simulator first listen
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/first-listen.yml'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'rust-toolchain.toml'
+      - 'assets/**'
+      - 'crates/**'
+      - 'tests/e2e/first-listen.py'
+
+permissions:
+  contents: read
+
+jobs:
+  first-listen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Play the generated fixture
+        env:
+          CARGO_BUILD_JOBS: '2'
+        run: |
+          mkdir -p build/ci-cargo-home
+          CARGO_HOME="$PWD/build/ci-cargo-home" python3 tests/e2e/first-listen.py --out build/first-listen
+      - name: Summarize generated playback
+        run: |
+          python3 - <<'PYTHON' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("build/first-listen/result.json").read_text())
+          print("## Simulator first listen")
+          print()
+          print("| Scenario | Playback advanced | Pause held |")
+          print("| --- | ---: | ---: |")
+          for key, label in (("first", "First listen"), ("offline_replay", "Offline Mode")):
+              evidence = result[key]
+              print(f"| {label} | {evidence['advanced_ms']} ms | {evidence['paused_for_ms']} ms |")
+          PYTHON
+      - name: Show first-listen diagnostics
+        if: failure()
+        run: |
+          for log in build/first-listen/build.log build/first-listen/ffmpeg.log build/first-listen/{first,offline}/player.log; do
+            if test -f "$log"; then
+              tail -n 80 "$log"
+            fi
+          done

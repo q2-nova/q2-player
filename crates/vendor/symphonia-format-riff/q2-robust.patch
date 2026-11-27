@@ -1,0 +1,45 @@
+diff -ruN a/src/common.rs b/src/common.rs
+--- a/src/common.rs	2026-11-21 20:02:52.146374425 -0600
++++ b/src/common.rs	2026-11-21 20:02:52.148500810 -0600
+@@ -27,6 +27,9 @@
+ /// Since there are no real packets in AIFF, this is arbitrary, used same value as MP3.
+ const MAX_FRAMES_PER_PACKET: u64 = 1152;
+ 
++/// [q2 patch] The most bytes `next_packet` reads for one packet.
++const Q2_MAX_PACKET_BYTES: u64 = 1024 * 1024;
++
+ /// `ParseChunkTag` implements `parse_tag` to map between the 4-byte chunk identifier and the
+ /// enumeration
+ pub trait ParseChunkTag: Sized {
+@@ -347,6 +350,13 @@
+     let dur = blocks_per_packet * packet_info.frames_per_block;
+     let packet_len = blocks_per_packet * packet_info.block_size;
+ 
++    // [q2 patch] The block size is a field of the file (up to 65535 bytes), and a packet is up
++    // to 1152 blocks: 72 MiB. The largest packet of real audio here is 1152 frames of eight
++    // 32-bit channels, 36 KiB.
++    if packet_len > Q2_MAX_PACKET_BYTES {
++        return decode_error("riff: packet too long");
++    }
++
+     // Copy the frames.
+     let packet_buf = reader.read_boxed_slice(packet_len as usize)?;
+ 
+diff -ruN a/src/wave/chunks.rs b/src/wave/chunks.rs
+--- a/src/wave/chunks.rs	2026-11-21 20:02:52.146723212 -0600
++++ b/src/wave/chunks.rs	2026-11-21 20:02:52.148791658 -0600
+@@ -534,7 +534,13 @@
+ 
+ impl ParseChunk for InfoChunk {
+     fn parse<B: ReadBytes>(reader: &mut B, tag: [u8; 4], len: u32) -> Result<InfoChunk> {
+-        // TODO: Apply limit.
++        // [q2 patch] `len` is a field of the file. A value above the tag limit is skipped
++        // unread, as the other metadata readers do (README.q2.md): `vec![0; len]` asked for up
++        // to 4 GiB before a byte of it was read.
++        if u64::from(len) > symphonia_core::io::Q2_MAX_TAG_BYTES {
++            reader.ignore_bytes(u64::from(len))?;
++            return Ok(InfoChunk { tag: riff::parse(tag, &[]) });
++        }
+         let mut value_buf = vec![0u8; len as usize];
+         reader.read_buf_exact(&mut value_buf)?;
+ 

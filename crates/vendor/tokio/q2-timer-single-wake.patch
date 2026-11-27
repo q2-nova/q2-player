@@ -1,0 +1,203 @@
+diff '--color=auto' -ru tokio-1.54.1/src/runtime/time/mod.rs tokio-1.54.1-q2/src/runtime/time/mod.rs
+--- tokio-1.54.1/src/runtime/time/mod.rs
++++ tokio-1.54.1-q2/src/runtime/time/mod.rs
+@@ -216,7 +216,8 @@
+ 
+         assert!(!handle.is_shutdown());
+ 
+-        let next_wake = lock.wheel.next_expiration_time();
++        // [q2 patch] Sleep until the earliest deadline, not the next cascade.
++        let next_wake = lock.wheel.next_wake_time();
+         lock.next_wake =
+             next_wake.map(|t| NonZeroU64::new(t).unwrap_or_else(|| NonZeroU64::new(1).unwrap()));
+ 
+@@ -326,9 +327,10 @@
+             }
+         }
+ 
++        // [q2 patch] Keep the promise consistent with `park_internal`.
+         lock.next_wake = lock
+             .wheel
+-            .poll_at()
++            .next_wake_time()
+             .map(|t| NonZeroU64::new(t).unwrap_or_else(|| NonZeroU64::new(1).unwrap()));
+ 
+         drop(lock);
+diff '--color=auto' -ru tokio-1.54.1/src/runtime/time/wheel/level.rs tokio-1.54.1-q2/src/runtime/time/wheel/level.rs
+--- tokio-1.54.1/src/runtime/time/wheel/level.rs
++++ tokio-1.54.1-q2/src/runtime/time/wheel/level.rs
+@@ -153,6 +153,22 @@
+         }
+     }
+ 
++    /// [q2 patch] The earliest registered deadline among the entries of
++    /// `slot`, or `None` when the slot is empty. Linear in the number of
++    /// entries in that one slot.
++    pub(crate) fn earliest_in_slot(&mut self, slot: usize) -> Option<u64> {
++        let mut earliest: Option<u64> = None;
++
++        self.slot[slot].for_each(|item| {
++            // SAFETY: the entry is in this wheel's list, so the caller holds
++            // the driver lock that guards `registered_when`.
++            let when = unsafe { item.registered_when() };
++            earliest = Some(earliest.map_or(when, |e| e.min(when)));
++        });
++
++        earliest
++    }
++
+     pub(crate) fn take_slot(&mut self, slot: usize) -> LinkedList<TimerShared> {
+         self.occupied &= !occupied_bit(slot);
+ 
+diff '--color=auto' -ru tokio-1.54.1/src/runtime/time/wheel/mod.rs tokio-1.54.1-q2/src/runtime/time/wheel/mod.rs
+--- tokio-1.54.1/src/runtime/time/wheel/mod.rs
++++ tokio-1.54.1-q2/src/runtime/time/wheel/mod.rs
+@@ -201,6 +201,44 @@
+         self.next_expiration().map(|ex| ex.deadline)
+     }
+ 
++    /// [q2 patch] Returns the tick at which the driver next has to wake the
++    /// thread, or `None` if there are no timers registered.
++    ///
++    /// `next_expiration_time` is the start of the next occupied slot. For a
++    /// slot above level 0 that is only the instant at which its entries
++    /// would be moved down a level; no timer is due before the earliest
++    /// deadline stored in that slot. Sleeping until the slot start therefore
++    /// costs one thread wakeup per level a timer descends, in addition to the
++    /// wakeup that fires it: a 250 ms sleep wakes at the 64 ms slot boundary
++    /// before its deadline and again at the deadline. `poll` already performs
++    /// every cascade that is due when it is called late, so the driver can
++    /// sleep until the earliest deadline in the slot instead.
++    ///
++    /// Why this is the earliest timer in the wheel: lower levels are empty
++    /// (`next_expiration` returns the first occupied level), later slots of
++    /// the same level start after this slot ends, and slots of higher levels
++    /// start after the current rotation of this level ends. The top level is
++    /// a ring that can hold entries more than one rotation away in any slot,
++    /// so it keeps the slot start.
++    ///
++    /// `registered_when` is never later than an entry's true deadline (a
++    /// timer reset to a later time is re-sorted lazily), so the wake is never
++    /// late.
++    pub(super) fn next_wake_time(&mut self) -> Option<u64> {
++        let expiration = self.next_expiration()?;
++
++        if !self.pending.is_empty()
++            || expiration.level == 0
++            || expiration.level == NUM_LEVELS - 1
++        {
++            return Some(expiration.deadline);
++        }
++
++        let earliest = self.levels[expiration.level].earliest_in_slot(expiration.slot);
++
++        Some(earliest.map_or(expiration.deadline, |when| when.max(expiration.deadline)))
++    }
++
+     /// Used for debug assertions
+     fn no_expirations_before(&self, start_level: usize, before: u64) -> bool {
+         let mut res = true;
+@@ -513,4 +551,65 @@
+         // that comes around only after the whole level rotates
+         assert_eq!(expiration, Some(20 << 30));
+     }
++
++    // [q2 patch]
++    #[test]
++    fn test_next_wake_time_is_the_earliest_deadline_in_a_cascading_slot() {
++        let wheel = &mut Wheel::new();
++
++        // 250 is in level 1 (64 ms slots); its slot starts at 192.
++        let _a = insert_entry(wheel, 250);
++        assert_eq!(wheel.next_expiration_time(), Some(192));
++        assert_eq!(wheel.next_wake_time(), Some(250));
++
++        // An earlier entry in the same slot moves the wake to it.
++        let _b = insert_entry(wheel, 200);
++        assert_eq!(wheel.next_expiration_time(), Some(192));
++        assert_eq!(wheel.next_wake_time(), Some(200));
++
++        // 5000 is in level 2 (4096 ms slots); level 1 still comes first.
++        let _c = insert_entry(wheel, 5000);
++        assert_eq!(wheel.next_wake_time(), Some(200));
++
++        // A level 0 entry is already exact.
++        let _d = insert_entry(wheel, 10);
++        assert_eq!(wheel.next_expiration_time(), Some(10));
++        assert_eq!(wheel.next_wake_time(), Some(10));
++
++        // One poll at the earliest deadline fires exactly the entries due
++        // then, with no poll at the slot start in between.
++        let mut fired = 0;
++        while wheel.poll(200).is_some() {
++            fired += 1;
++        }
++        assert_eq!(fired, 2);
++        assert_eq!(wheel.next_wake_time(), Some(250));
++
++        while wheel.poll(250).is_some() {
++            fired += 1;
++        }
++        assert_eq!(fired, 3);
++
++        // Level 2: the slot starts at 4096, the entry is due at 5000.
++        assert_eq!(wheel.next_expiration_time(), Some(4096));
++        assert_eq!(wheel.next_wake_time(), Some(5000));
++        while wheel.poll(5000).is_some() {
++            fired += 1;
++        }
++        assert_eq!(fired, 4);
++        assert!(wheel.next_wake_time().is_none());
++    }
++
++    // [q2 patch]
++    #[test]
++    fn test_next_wake_time_keeps_the_slot_start_at_the_top_level() {
++        let wheel = &mut Wheel::new();
++
++        // Slot 5 of the top level can hold an entry a rotation away.
++        let _far = insert_entry(wheel, 5 << 30);
++        let _near = insert_entry(wheel, (1 << 30) + 10);
++
++        assert_eq!(wheel.next_wake_time(), wheel.next_expiration_time());
++        assert_eq!(wheel.next_wake_time(), Some(1 << 30));
++    }
+ }
+diff '--color=auto' -ru tokio-1.54.1/src/util/linked_list.rs tokio-1.54.1-q2/src/util/linked_list.rs
+--- tokio-1.54.1/src/util/linked_list.rs
++++ tokio-1.54.1-q2/src/util/linked_list.rs
+@@ -308,20 +308,21 @@
+     }
+ }
+ 
+-cfg_taskdump! {
+-    impl<L: Link> LinkedList<L> {
+-        pub(crate) fn for_each<F>(&mut self, mut f: F)
+-        where
+-            F: FnMut(&L::Handle),
+-        {
+-            let mut next = self.head;
++// [q2 patch] Was `cfg_taskdump!` only; the time driver also walks a slot's
++// entries to find the earliest deadline (`Wheel::next_wake_time`).
++impl<L: Link> LinkedList<L> {
++    #[allow(dead_code)]
++    pub(crate) fn for_each<F>(&mut self, mut f: F)
++    where
++        F: FnMut(&L::Handle),
++    {
++        let mut next = self.head;
+ 
+-            while let Some(curr) = next {
+-                unsafe {
+-                    let handle = ManuallyDrop::new(L::from_raw(curr));
+-                    f(&handle);
+-                    next = L::pointers(curr).as_ref().get_next();
+-                }
++        while let Some(curr) = next {
++            unsafe {
++                let handle = ManuallyDrop::new(L::from_raw(curr));
++                f(&handle);
++                next = L::pointers(curr).as_ref().get_next();
+             }
+         }
+     }

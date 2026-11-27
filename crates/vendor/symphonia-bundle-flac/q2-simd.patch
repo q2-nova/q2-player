@@ -1,0 +1,2116 @@
+diff -ruN a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml	2026-11-18 02:56:54.305466338 -0600
++++ b/Cargo.toml	2026-11-18 02:56:54.307409588 -0600
+@@ -57,4 +57,5 @@
+ [lints.rust.unexpected_cfgs]
+ level = "warn"
+ priority = 0
+-check-cfg = ["cfg(fuzzing)"]
++# [q2 patch] q2_*: cfgs set by the optimization rig (README.q2.md).
++check-cfg = ["cfg(fuzzing)", "cfg(q2_flac_profile)", "cfg(q2_flac_no_msa)"]
+diff -ruN a/src/decoder.rs b/src/decoder.rs
+--- a/src/decoder.rs	2026-11-18 02:56:54.305699857 -0600
++++ b/src/decoder.rs	2026-11-18 02:56:54.307579374 -0600
+@@ -29,12 +29,14 @@
+ use super::validate::Validator;
+ 
+ fn decorrelate_left_side(left: &[i32], side: &mut [i32]) {
++    q2_span!(OUTPUT);
+     for (s, l) in side.iter_mut().zip(left) {
+         *s = *l - *s;
+     }
+ }
+ 
+ fn decorrelate_mid_side(mid: &mut [i32], side: &mut [i32]) {
++    q2_span!(OUTPUT);
+     for (m, s) in mid.iter_mut().zip(side) {
+         // Mid (M) is given as M = L/2 + R/2, while Side (S) is given as S = L - R.
+         //
+@@ -75,6 +77,7 @@
+ }
+ 
+ fn decorrelate_right_side(right: &[i32], side: &mut [i32]) {
++    q2_span!(OUTPUT);
+     for (s, r) in side.iter_mut().zip(right) {
+         *s += *r;
+     }
+@@ -86,16 +89,37 @@
+     is_validating: bool,
+     validator: Validator,
+     buf: AudioBuffer<i32>,
++    /// [q2 patch] The restructured decoder's work buffer.
++    q2_work: crate::q2frame::Work,
++    /// [q2 patch] False: every frame goes through upstream's code (tests).
++    q2_restructured: bool,
++    /// [q2 patch] Frames the restructured decoder has decoded.
++    #[cfg(test)]
++    q2_accepted: u32,
++}
++
++#[cfg(test)]
++impl FlacDecoder {
++    pub(crate) fn q2_set_restructured(&mut self, on: bool) {
++        self.q2_restructured = on;
++    }
++    pub(crate) fn q2_accepted(&self) -> u32 {
++        self.q2_accepted
++    }
+ }
+ 
+ impl FlacDecoder {
+     fn decode_inner(&mut self, packet: &Packet) -> Result<()> {
++        q2_span!(PACKET);
+         let mut reader = packet.as_buf_reader();
+ 
+-        // Synchronize to a frame and get the synchronization code.
+-        let sync = sync_frame(&mut reader)?;
++        let header = {
++            q2_span!(HEADER);
++            // Synchronize to a frame and get the synchronization code.
++            let sync = sync_frame(&mut reader)?;
+ 
+-        let header = read_frame_header(&mut reader, sync)?;
++            read_frame_header(&mut reader, sync)?
++        };
+ 
+         // Use the bits per sample and sample rate as stated in the frame header, falling back to
+         // the stream information if provided. If neither are available, return an error.
+@@ -120,10 +144,36 @@
+         self.buf.clear();
+         self.buf.render_reserved(Some(header.block_num_samples as usize));
+ 
++        // [q2 patch] The restructured decoder (q2frame.rs). It declines what
++        // it does not handle, errors included; upstream's code below then
++        // decodes the frame from the start. Verification needs the samples
++        // before the output shift, so it stays with upstream's code.
++        let q2_data = reader.read_buf_bytes_available_ref();
++        let q2_done = self.q2_restructured
++            && !self.is_validating
++            && crate::q2frame::decode_frame(
++                q2_data,
++                &header.channel_assignment,
++                bits_per_sample,
++                header.block_num_samples as usize,
++                &mut self.buf,
++                &mut self.q2_work,
++                crate::q2simd::msa(),
++            )
++            .is_some();
++        if q2_done {
++            #[cfg(test)]
++            {
++                self.q2_accepted += 1;
++            }
++            return Ok(());
++        }
++
+         // Only Bitstream reading for subframes.
+         {
+             // Sub-frames don't have any byte-aligned content, so use a BitReader.
+-            let mut bs = BitReaderLtr::new(reader.read_buf_bytes_available_ref());
++            // [q2 patch] The same bytes the restructured decoder was given.
++            let mut bs = BitReaderLtr::new(q2_data);
+ 
+             // Read each subframe based on the channel assignment into a planar buffer.
+             match header.channel_assignment {
+@@ -170,6 +220,7 @@
+         // the encoded audio samples are actually 32bit. Shift all samples in the output buffer
+         // so that regardless the encoded bits/sample, the output is always 32bits/sample.
+         if bits_per_sample < 32 {
++            q2_span!(OUTPUT);
+             let shift = 32 - bits_per_sample;
+             self.buf.transform(|sample| sample << shift);
+         }
+@@ -226,6 +277,10 @@
+             is_validating: options.verify,
+             validator: Default::default(),
+             buf,
++            q2_work: crate::q2frame::Work::new(usize::from(info.block_len_max), info.channels.count()),
++            q2_restructured: true,
++            #[cfg(test)]
++            q2_accepted: 0,
+         })
+     }
+ 
+@@ -359,6 +414,7 @@
+ #[inline(always)]
+ fn samples_shl(shift: u32, buf: &mut [i32]) {
+     if shift > 0 {
++        q2_span!(OUTPUT);
+         for sample in buf.iter_mut() {
+             *sample = sample.wrapping_shl(shift);
+         }
+@@ -464,6 +520,7 @@
+     n_prelude_samples: u32,
+     buf: &mut [i32],
+ ) -> Result<()> {
++    q2_span!(RESIDUAL);
+     let method_enc = bs.read_bits_leq32(2)?;
+ 
+     // The FLAC specification defines two residual coding methods: Rice and Rice2. The
+@@ -610,6 +667,7 @@
+ }
+ 
+ fn fixed_predict(order: u32, buf: &mut [i32]) {
++    q2_span!(PREDICT);
+     debug_assert!(order <= 4);
+ 
+     // The Fixed Predictor is just a hard-coded version of the Linear Predictor up to order 4 and
+@@ -663,6 +721,7 @@
+ /// coefficient at index 31. Coefficients at indices less than 31 - `order` must be 0.
+ /// It is expected that the first `order` samples in `buf` are warm-up samples.
+ fn lpc_predict<const N: usize>(order: usize, coeffs: &[i32; N], coeff_shift: u32, buf: &mut [i32]) {
++    q2_span!(PREDICT);
+     // Order must be less than or equal to the number of coefficients.
+     debug_assert!(order <= coeffs.len());
+ 
+diff -ruN a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs	2026-11-18 02:56:54.305908200 -0600
++++ b/src/lib.rs	2026-11-18 02:56:54.307797439 -0600
+@@ -6,7 +6,13 @@
+ // file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ 
+ #![warn(rust_2018_idioms)]
+-#![forbid(unsafe_code)]
++// [q2 patch] The MSA vectors use core::arch::mips intrinsics inside
++// #[target_feature] functions; both are nightly features, and the Q2 build
++// uses the pinned nightly. Host builds (stable) compile none of it.
++#![cfg_attr(target_arch = "mips", feature(stdarch_mips, mips_target_feature))]
++// [q2 patch] `deny`, not `forbid`: the MSA kernels and the capability check
++// (q2simd.rs, q2frame.rs) allow it locally.
++#![deny(unsafe_code)]
+ // The following lints are allowed in all Symphonia crates. Please see clippy.toml for their
+ // justification.
+ #![allow(clippy::comparison_chain)]
+@@ -14,6 +20,52 @@
+ #![allow(clippy::identity_op)]
+ #![allow(clippy::manual_range_contains)]
+ 
++// [q2 patch] Stage timers, only with --cfg q2_flac_profile.
++#[cfg(q2_flac_profile)]
++mod q2prof;
++/// [q2 patch] Times the rest of the enclosing block as one profile stage.
++#[allow(unused_macros)]
++macro_rules! q2_span {
++    ($stage:ident) => {
++        #[cfg(q2_flac_profile)]
++        let _q2_span = crate::q2prof::span(crate::q2prof::$stage);
++    };
++}
++
++/// [q2 patch] Switches of the Q2 copy (README.q2.md).
++pub mod q2 {
++    /// Stage nanoseconds, stage calls and the cost of one empty span;
++    /// clears the counters. Stage numbers: `q2prof.rs`.
++    #[cfg(q2_flac_profile)]
++    pub fn profile_take() -> ([u32; 8], [u32; 8], u32) {
++        crate::q2prof::take()
++    }
++
++    /// Whether the kernels use MSA now.
++    pub fn msa() -> bool {
++        crate::q2simd::msa()
++    }
++
++    /// `Some(false)` forces the scalar kernels, `Some(true)` asks for MSA
++    /// (used only where the kernel reports it), `None` restores the default.
++    /// Process-wide; for tests and benchmarks.
++    pub fn set_msa(want: Option<bool>) {
++        crate::q2simd::set_msa(want)
++    }
++
++    /// Runs the prediction and output kernels on generated input with the
++    /// scalar code and with the current kernels (`msa()`), and compares every
++    /// sample. `Ok` is the number of comparisons.
++    pub fn selftest() -> Result<u32, String> {
++        crate::q2frame::selftest()
++    }
++}
++
++// [q2 patch] The restructured subframe decoder.
++mod q2bits;
++mod q2frame;
++mod q2simd;
++
+ mod decoder;
+ mod demuxer;
+ mod frame;
+diff -ruN a/src/q2bits.rs b/src/q2bits.rs
+--- a/src/q2bits.rs	1969-12-31 18:00:00.000000000 -0600
++++ b/src/q2bits.rs	2026-11-18 02:56:54.308066896 -0600
+@@ -0,0 +1,161 @@
++// [q2 patch] Bit reader of the restructured subframe decoder (README.q2.md).
++//
++// symphonia-core's `BitReaderLtr` keeps a 64-bit cache and returns an
++// `io::Result` from every read; on the 32-bit Q2 each 64-bit shift is a
++// multi-instruction sequence. This reader keeps only a bit position and
++// builds a 32-bit window from four bytes at that position. Reads past the end
++// of the buffer return zero bits and are found afterwards with `overrun()`:
++// the caller then abandons the frame and decodes it again with upstream's
++// reader, which reports the error.
++
++pub(crate) struct Bits<'a> {
++    pub(crate) buf: &'a [u8],
++    /// Bits consumed.
++    pub(crate) pos: usize,
++}
++
++/// The four bytes at `i`, big-endian, zero where the buffer has ended.
++#[cold]
++#[inline(never)]
++pub(crate) fn word_at_end(buf: &[u8], i: usize) -> u32 {
++    let mut w = 0;
++    for k in 0..4 {
++        w = (w << 8) | u32::from(i.checked_add(k).and_then(|i| buf.get(i)).copied().unwrap_or(0));
++    }
++    w
++}
++
++/// The 32 bits at bit position `pos`, first bit in bit 31. At least 25 are
++/// stream bits; the low `pos & 7` are zero.
++#[inline(always)]
++pub(crate) fn window(buf: &[u8], pos: usize) -> u32 {
++    let i = pos >> 3;
++    let w = match buf.get(i..i.wrapping_add(4)) {
++        Some(b) => u32::from_be_bytes([b[0], b[1], b[2], b[3]]),
++        None => word_at_end(buf, i),
++    };
++    w << (pos & 7)
++}
++
++impl<'a> Bits<'a> {
++    pub(crate) fn new(buf: &'a [u8]) -> Self {
++        Bits { buf, pos: 0 }
++    }
++
++    /// The next `n` bits (0..=32) as an unsigned number.
++    #[inline(always)]
++    pub(crate) fn bits(&mut self, n: u32) -> u32 {
++        debug_assert!(n <= 32);
++        if n <= 25 {
++            let w = window(self.buf, self.pos);
++            self.pos += n as usize;
++            // Two shifts: n = 0 gives 0.
++            (w >> 1) >> (31 - n)
++        }
++        else {
++            let high = self.bits(16);
++            let low = self.bits(n - 16);
++            (high << (n - 16)) | low
++        }
++    }
++
++    /// The next `n` bits (1..=32) as a two's complement number of `n` bits.
++    #[inline(always)]
++    pub(crate) fn signed(&mut self, n: u32) -> i32 {
++        debug_assert!(n >= 1 && n <= 32);
++        let v = self.bits(n);
++        ((v << (32 - n)) as i32) >> (32 - n)
++    }
++
++    #[inline(always)]
++    pub(crate) fn bit(&mut self) -> bool {
++        self.bits(1) != 0
++    }
++
++    /// The number of zero bits before the next one bit; consumes the one bit.
++    /// `None` when the buffer ends before a one bit.
++    #[inline]
++    pub(crate) fn unary_zeros(&mut self) -> Option<u32> {
++        let end = self.buf.len().checked_mul(8)?;
++        let mut zeros = 0u32;
++        loop {
++            let w = window(self.buf, self.pos);
++            if w != 0 {
++                // Bits past the end are zero, so this one bit is in the buffer.
++                let q = w.leading_zeros();
++                self.pos += q as usize + 1;
++                return Some(zeros.wrapping_add(q));
++            }
++            let valid = 32 - (self.pos & 7);
++            self.pos += valid;
++            zeros = zeros.wrapping_add(valid as u32);
++            if self.pos >= end {
++                return None;
++            }
++        }
++    }
++
++    /// Whether a read went past the end of the buffer.
++    #[inline]
++    pub(crate) fn overrun(&self) -> bool {
++        self.pos > self.buf.len().saturating_mul(8)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::Bits;
++    use crate::q2simd::Rng;
++    use symphonia_core::io::{BitReaderLtr, ReadBitsLtr};
++
++    /// Random mixes of reads give upstream's values and end at the same bit.
++    #[test]
++    fn reads_match_upstream() {
++        let mut rng = Rng(0x1234_5678);
++        for round in 0..2000 {
++            let len = rng.below(40) as usize;
++            let dense = round % 3;
++            let data: Vec<u8> = (0..len)
++                .map(|_| match dense {
++                    0 => rng.next() as u8,
++                    1 => (rng.next() & rng.next() & rng.next()) as u8,
++                    _ => {
++                        if rng.below(6) == 0 {
++                            1 << rng.below(8)
++                        }
++                        else {
++                            0
++                        }
++                    }
++                })
++                .collect();
++            let mut ours = Bits::new(&data);
++            let mut theirs = BitReaderLtr::new(&data);
++            loop {
++                let (a, b) = match rng.below(4) {
++                    0 => {
++                        let n = rng.below(33);
++                        (Some(ours.bits(n)), theirs.read_bits_leq32(n).ok())
++                    }
++                    1 => {
++                        let n = 1 + rng.below(32);
++                        (Some(ours.signed(n) as u32), theirs.read_bits_leq32_signed(n).ok().map(|v| v as u32))
++                    }
++                    2 => (Some(ours.bit() as u32), theirs.read_bool().ok().map(|v| v as u32)),
++                    _ => (ours.unary_zeros(), theirs.read_unary_zeros().ok()),
++                };
++                match b {
++                    // Upstream failed: ours ran past the end or said so.
++                    None => {
++                        assert!(a.is_none() || ours.overrun());
++                        break;
++                    }
++                    Some(b) => {
++                        assert_eq!(a, Some(b));
++                        assert!(!ours.overrun());
++                    }
++                }
++            }
++        }
++    }
++}
+diff -ruN a/src/q2frame.rs b/src/q2frame.rs
+--- a/src/q2frame.rs	1969-12-31 18:00:00.000000000 -0600
++++ b/src/q2frame.rs	2026-11-18 02:56:54.308185720 -0600
+@@ -0,0 +1,828 @@
++// [q2 patch] Subframe decoding restructured for SIMD (README.q2.md).
++//
++// Upstream decodes one channel at a time: Rice codes through a 64-bit bit
++// cache, a 64-bit scalar predictor, then one pass over the planes per
++// decorrelation, wasted-bits shift and output shift.
++//
++// Here a frame's channels are decoded two at a time, in their output planes:
++//   1. both subframes' warm-up samples and residuals are read with a 32-bit
++//      bit window (q2bits.rs; `rice_window` for the Rice codes);
++//   2. prediction runs over both channels at once: a vector's two 64-bit
++//      lanes are the two channels (`lpc_pair`), or per channel in scalar code;
++//   3. one pass applies the wasted-bits shifts, the inter-channel
++//      decorrelation and the output shift (`output_range`).
++// Steps 2 and 3 alternate over runs of `CHUNK` frames, so the output pass
++// works on samples that are still in the 32 KiB L1 cache.
++//
++// `decode_frame` returns `None` for anything it does not handle (every error,
++// reserved values, a frame whose channel count is not the stream's); the
++// caller then decodes the frame with upstream's code, which stays in
++// decoder.rs. So this file only has to be exact for the frames it accepts.
++// All sample arithmetic wraps, as upstream's does when compiled without
++// overflow checks (the release profile).
++
++use std::convert::TryInto;
++
++use symphonia_core::audio::{AudioBuffer, Signal};
++
++use crate::frame::ChannelAssignment;
++use crate::q2bits::Bits;
++use crate::q2simd::V4;
++
++/// Longest predictor.
++pub(crate) const MAX_TAPS: usize = 32;
++/// Frames predicted between output passes: a multiple of every kernel length
++/// and of 4; two planes of it are 3.75 KiB.
++const CHUNK: usize = 480;
++
++/// A second plane for the last of an odd number of channels. The only
++/// allocation; `decode_frame` makes none.
++pub(crate) struct Work {
++    spare: Vec<i32>,
++}
++
++impl Work {
++    /// For blocks of up to `frames` frames.
++    pub(crate) fn new(frames: usize, channels: usize) -> Work {
++        Work { spare: vec![0i32; if channels % 2 == 1 { frames } else { 0 }] }
++    }
++}
++
++#[derive(Clone, Copy, PartialEq, Debug)]
++enum Predictor {
++    /// Constant and verbatim subframes: the plane holds the samples.
++    None,
++    Fixed(usize),
++    /// Order; `taps` and `shift` describe it.
++    Lpc(usize),
++}
++
++#[derive(Clone, Copy)]
++struct Sub {
++    predictor: Predictor,
++    /// `taps[j]` multiplies the sample `j + 1` frames back; zero past the order.
++    taps: [i32; MAX_TAPS],
++    shift: u32,
++    wasted: u32,
++}
++
++impl Sub {
++    fn plain() -> Sub {
++        Sub { predictor: Predictor::None, taps: [0; MAX_TAPS], shift: 0, wasted: 0 }
++    }
++    fn lpc_order(&self) -> usize {
++        match self.predictor {
++            Predictor::Lpc(order) => order,
++            _ => 0,
++        }
++    }
++}
++
++#[derive(Clone, Copy, PartialEq, Debug)]
++pub(crate) enum Mix {
++    Independent,
++    LeftSide,
++    RightSide,
++    MidSide,
++}
++
++/// Decodes the subframes in `data` (a frame's bytes after its header) into
++/// `buf`, whose frame count the caller has set to `n`. `None`: decode the
++/// frame with upstream's code instead; `buf`'s samples are then unspecified.
++pub(crate) fn decode_frame(
++    data: &[u8],
++    assignment: &ChannelAssignment,
++    bps: u32,
++    n: usize,
++    buf: &mut AudioBuffer<i32>,
++    work: &mut Work,
++    msa: bool,
++) -> Option<()> {
++    let (count, mix) = match assignment {
++        ChannelAssignment::Independant(count) => (*count as usize, Mix::Independent),
++        ChannelAssignment::LeftSide => (2, Mix::LeftSide),
++        ChannelAssignment::RightSide => (2, Mix::RightSide),
++        ChannelAssignment::MidSide => (2, Mix::MidSide),
++    };
++    // Upstream's output shift runs over every plane of the buffer, so a frame
++    // with fewer channels than the stream is left to it. A difference channel
++    // has one more bit than the frame.
++    let side = u32::from(mix != Mix::Independent);
++    if count != buf.spec().channels.count() || n == 0 || n != buf.frames() || bps == 0 || bps + side > 32 {
++        return None;
++    }
++    let out_shift = if bps < 32 { 32 - bps } else { 0 };
++    let kernels = (pair_kernel(msa), output_kernel(msa));
++    let mut bs = Bits::new(data);
++    let mut channel = 0;
++    while channel < count {
++        if count - channel >= 2 {
++            let (bps0, bps1) = match mix {
++                Mix::Independent => (bps, bps),
++                Mix::LeftSide | Mix::MidSide => (bps, bps + 1),
++                Mix::RightSide => (bps + 1, bps),
++            };
++            let (p0, p1) = buf.chan_pair_mut(channel, channel + 1);
++            let subs = [read_subframe(&mut bs, bps0, p0)?, read_subframe(&mut bs, bps1, p1)?];
++            finish_pair(p0, p1, &subs, mix, out_shift, kernels);
++            channel += 2;
++        }
++        else {
++            // The last of an odd number of channels, with the spare plane as
++            // an unused second lane.
++            let p0 = buf.chan_mut(channel);
++            let p1 = work.spare.get_mut(..n)?;
++            let subs = [read_subframe(&mut bs, bps, p0)?, Sub::plain()];
++            finish_pair(p0, p1, &subs, Mix::Independent, out_shift, kernels);
++            channel += 1;
++        }
++    }
++    Some(())
++}
++
++fn read_subframe(bs: &mut Bits<'_>, frame_bps: u32, plane: &mut [i32]) -> Option<Sub> {
++    let n = plane.len();
++    // The padding bit must be 0.
++    if bs.bit() {
++        return None;
++    }
++    let kind = bs.bits(6);
++    let wasted = if bs.bit() { bs.unary_zeros()?.checked_add(1)? } else { 0 };
++    if wasted >= frame_bps {
++        return None;
++    }
++    let bps = frame_bps - wasted;
++    let mut sub = Sub::plain();
++    sub.wasted = wasted;
++    match kind {
++        0x00 => {
++            let value = bs.signed(bps);
++            for sample in plane.iter_mut() {
++                *sample = value;
++            }
++        }
++        0x01 => read_verbatim(bs, bps, plane),
++        0x08..=0x0c => {
++            let order = (kind & 0x07) as usize;
++            if order > n {
++                return None;
++            }
++            read_verbatim(bs, bps, &mut plane[..order]);
++            read_residual(bs, order, plane)?;
++            sub.predictor = Predictor::Fixed(order);
++        }
++        0x20..=0x3f => {
++            let order = (kind & 0x1f) as usize + 1;
++            if order > n {
++                return None;
++            }
++            read_verbatim(bs, bps, &mut plane[..order]);
++            let precision = bs.bits(4) + 1;
++            if precision > 15 {
++                return None;
++            }
++            let shift = bs.signed(5);
++            if shift < 0 {
++                return None;
++            }
++            for tap in sub.taps[..order].iter_mut() {
++                *tap = bs.signed(precision);
++            }
++            read_residual(bs, order, plane)?;
++            sub.predictor = Predictor::Lpc(order);
++            sub.shift = shift as u32;
++        }
++        _ => return None,
++    }
++    if bs.overrun() {
++        return None;
++    }
++    Some(sub)
++}
++
++fn read_verbatim(bs: &mut Bits<'_>, bps: u32, out: &mut [i32]) {
++    for sample in out.iter_mut() {
++        *sample = bs.signed(bps);
++    }
++}
++
++fn read_residual(bs: &mut Bits<'_>, prelude: usize, plane: &mut [i32]) -> Option<()> {
++    q2_span!(RESIDUAL);
++    let n = plane.len();
++    let parameter_bits = match bs.bits(2) {
++        0 => 4,
++        1 => 5,
++        _ => return None,
++    };
++    let partition_order = bs.bits(4);
++    let partition = n >> partition_order;
++    if prelude > partition || partition << partition_order != n {
++        return None;
++    }
++    // The first partition is short by the warm-up samples.
++    let (mut from, mut to) = (prelude, partition);
++    loop {
++        read_partition(bs, parameter_bits, &mut plane[from..to])?;
++        if to >= n {
++            return Some(());
++        }
++        from = to;
++        to += partition;
++    }
++}
++
++/// Largest Rice parameter of `rice_window`.
++const RICE_WINDOW_MAX: u32 = 20;
++
++fn read_partition(bs: &mut Bits<'_>, parameter_bits: u32, out: &mut [i32]) -> Option<()> {
++    let parameter = bs.bits(parameter_bits);
++    if parameter < (1 << parameter_bits) - 1 {
++        if parameter <= RICE_WINDOW_MAX {
++            rice_window(bs, parameter, out)?;
++        }
++        else {
++            for sample in out.iter_mut() {
++                *sample = rice_one(bs, parameter)?;
++            }
++        }
++    }
++    else {
++        // Escape: residuals as plain two's complement numbers.
++        let width = bs.bits(5);
++        for sample in out.iter_mut() {
++            *sample = if width == 0 { 0 } else { bs.signed(width) };
++        }
++    }
++    if bs.overrun() {
++        return None;
++    }
++    Some(())
++}
++
++/// Folded residual to signed: 0, -1, 1, -2, 2, ...
++#[inline(always)]
++fn unfold(word: u32) -> i32 {
++    ((word >> 1) as i32) ^ -((word & 1) as i32)
++}
++
++/// One Rice code with any parameter (up to 30): quotient and remainder read separately.
++#[inline]
++fn rice_one(bs: &mut Bits<'_>, k: u32) -> Option<i32> {
++    let q = bs.unary_zeros()?;
++    let r = bs.bits(k);
++    Some(unfold((q << k) | r))
++}
++
++/// The big-endian word at byte `4 * j`.
++#[inline(always)]
++fn word(buf: &[u8], j: usize) -> Option<u32> {
++    let b = buf.get(4 * j..4 * j + 4)?;
++    Some(u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
++}
++
++/// Rice codes with parameter `k <= RICE_WINDOW_MAX`.
++///
++/// The stream is taken as big-endian 32-bit words. Two consecutive words
++/// stay in registers; a code's 32-bit window is two shifts and an OR of
++/// them, so the path from one code to the next is shift, OR,
++/// count-leading-zeros and two adds, with no load on it. The next word is
++/// loaded every iteration and moved in with conditional moves when the
++/// position crosses a word, so there is no data-dependent branch either: the
++/// one branch per code tests that the quotient's one bit and the remainder
++/// are inside the window (`q + 1 + k <= 32`), which fails only for
++/// quotients above `31 - k`.
++#[inline(always)]
++fn rice_window(bs: &mut Bits<'_>, k: u32, out: &mut [i32]) -> Option<()> {
++    let buf = bs.buf;
++    let n = out.len();
++    let mut done = 0;
++    while done < n {
++        let mut j = bs.pos >> 5;
++        let mut offset = (bs.pos & 31) as u32;
++        if let (Some(mut w0), Some(mut w1)) = (word(buf, j), word(buf, j + 1)) {
++            for sample in out[done..].iter_mut() {
++                let next = match word(buf, j + 2) {
++                    Some(next) => next,
++                    None => break,
++                };
++                let w = (w0 << offset) | ((w1 >> 1) >> (31 - offset));
++                if w >> k == 0 {
++                    break;
++                }
++                let q = w.leading_zeros();
++                // The k bits after the one bit (two shifts: q + 1 may be 32).
++                let r = (((w << q) << 1) >> 1) >> (31 - k);
++                *sample = unfold((q << k) | r);
++                done += 1;
++                offset += q + 1 + k;
++                let crossed = offset >> 5 != 0;
++                offset &= 31;
++                j += usize::from(crossed);
++                w0 = if crossed { w1 } else { w0 };
++                w1 = if crossed { next } else { w1 };
++            }
++            bs.pos = 32 * j + offset as usize;
++        }
++        // A long quotient, or the last 12 bytes of the buffer.
++        if done < n {
++            out[done] = rice_one(bs, k)?;
++            done += 1;
++        }
++    }
++    Some(())
++}
++
++/// A vector predictor over two planes: frames `from..to`, taps, shifts and the
++/// larger order; returns the first frame it did not predict.
++pub(crate) type PairKernel = fn(&mut [i32], &mut [i32], usize, usize, &[[i32; MAX_TAPS]; 2], [u32; 2], usize) -> usize;
++/// A vector output pass over frames `from..to`; returns the first frame it did not write.
++pub(crate) type OutputKernel = fn(&mut [i32], &mut [i32], usize, usize, Mix, [u32; 2], u32) -> usize;
++
++/// The MSA predictor when `msa` is set (and this is a MIPS build).
++#[inline]
++fn pair_kernel(msa: bool) -> Option<PairKernel> {
++    #[cfg(target_arch = "mips")]
++    if msa {
++        return Some(msa_entry::lpc_pair_checked);
++    }
++    let _ = msa;
++    None
++}
++
++#[inline]
++fn output_kernel(msa: bool) -> Option<OutputKernel> {
++    #[cfg(target_arch = "mips")]
++    if msa {
++        return Some(msa_entry::output_checked);
++    }
++    let _ = msa;
++    None
++}
++
++/// Prediction and output of two planes holding warm-up samples and residuals.
++fn finish_pair(
++    p0: &mut [i32],
++    p1: &mut [i32],
++    subs: &[Sub; 2],
++    mix: Mix,
++    out_shift: u32,
++    kernels: (Option<PairKernel>, Option<OutputKernel>),
++) {
++    let n = p0.len();
++    let wasted = [subs[0].wasted, subs[1].wasted];
++    {
++        q2_span!(PREDICT);
++        if let Predictor::Fixed(order) = subs[0].predictor {
++            fixed_predict(p0, order);
++        }
++        if let Predictor::Fixed(order) = subs[1].predictor {
++            fixed_predict(p1, order);
++        }
++    }
++    let orders = [subs[0].lpc_order(), subs[1].lpc_order()];
++    let order = orders[0].max(orders[1]);
++    // Frames below `predicted` hold samples; frames below `written` hold output.
++    let mut predicted = order;
++    let mut written = 0;
++    if order > 0 {
++        {
++            q2_span!(PREDICT);
++            // The lane with the lower order up to the larger order.
++            lpc_predict(p0, &subs[0].taps, orders[0], subs[0].shift, orders[0], order);
++            lpc_predict(p1, &subs[1].taps, orders[1], subs[1].shift, orders[1], order);
++        }
++        if let Some(kernel) = kernels.0 {
++            // A lane without linear prediction has zero taps and shift 0: the
++            // kernel leaves it as it is.
++            let taps = [subs[0].taps, subs[1].taps];
++            let shift = [subs[0].shift, subs[1].shift];
++            loop {
++                let reached = {
++                    q2_span!(PREDICT);
++                    kernel(p0, p1, predicted, n.min(predicted + CHUNK), &taps, shift, order)
++                };
++                if reached == predicted {
++                    break;
++                }
++                predicted = reached;
++                // The next kernel call and the scalar tail read up to
++                // MAX_TAPS samples back: the output pass stays behind them.
++                let ready = predicted.saturating_sub(MAX_TAPS) & !3;
++                if ready > written {
++                    q2_span!(OUTPUT);
++                    written = output_range(p0, p1, written, ready, mix, wasted, out_shift, kernels.1);
++                }
++            }
++        }
++        q2_span!(PREDICT);
++        lpc_predict(p0, &subs[0].taps, orders[0], subs[0].shift, predicted, n);
++        lpc_predict(p1, &subs[1].taps, orders[1], subs[1].shift, predicted, n);
++    }
++    q2_span!(OUTPUT);
++    output_range(p0, p1, written, n, mix, wasted, out_shift, kernels.1);
++}
++
++/// The fixed predictors, order 0 to 4. Their coefficients are integers and
++/// there is no shift, so the sums are exact in wrapping 32-bit arithmetic
++/// (upstream sums in 64 bits and keeps the low 32).
++fn fixed_predict(plane: &mut [i32], order: usize) {
++    match order {
++        1 => fixed_loop(plane, order, |r, a, _, _, _| r.wrapping_add(a)),
++        2 => fixed_loop(plane, order, |r, a, b, _, _| r.wrapping_add(a.wrapping_mul(2)).wrapping_sub(b)),
++        3 => fixed_loop(plane, order, |r, a, b, c, _| r.wrapping_add(a.wrapping_sub(b).wrapping_mul(3)).wrapping_add(c)),
++        4 => fixed_loop(plane, order, |r, a, b, c, d| {
++            r.wrapping_add(a.wrapping_add(c).wrapping_mul(4)).wrapping_sub(b.wrapping_mul(6)).wrapping_sub(d)
++        }),
++        _ => {}
++    }
++}
++
++/// `sample = f(residual, a, b, c, d)` for frames `order..`; a, b, c, d are
++/// the samples 1, 2, 3 and 4 frames back, kept in registers.
++#[inline(always)]
++fn fixed_loop(plane: &mut [i32], order: usize, f: impl Fn(i32, i32, i32, i32, i32) -> i32) {
++    if order >= plane.len() {
++        return;
++    }
++    let back = |frames: usize| if frames <= order { plane[order - frames] } else { 0 };
++    let (mut a, mut b, mut c, mut d) = (back(1), back(2), back(3), back(4));
++    for sample in plane[order..].iter_mut() {
++        let s = f(*sample, a, b, c, d);
++        *sample = s;
++        d = c;
++        c = b;
++        b = a;
++        a = s;
++    }
++}
++
++/// Scalar linear prediction of frames `from..to` of one plane (`order <= from`):
++/// `sample += (sum of taps[j] * sample[j + 1 frames back]) >> shift`, the sum
++/// in 64 bits as upstream's. Nothing for order 0.
++fn lpc_predict(plane: &mut [i32], taps: &[i32; MAX_TAPS], order: usize, shift: u32, from: usize, to: usize) {
++    if from >= to || order == 0 {
++        return;
++    }
++    // As upstream: a few loop lengths, each fully unrolled, the taps past the
++    // order being zero.
++    match order {
++        0..=4 => lpc_run::<4>(plane, taps, order, shift, from, to),
++        5..=6 => lpc_run::<6>(plane, taps, order, shift, from, to),
++        7..=8 => lpc_run::<8>(plane, taps, order, shift, from, to),
++        9..=10 => lpc_run::<10>(plane, taps, order, shift, from, to),
++        11..=12 => lpc_run::<12>(plane, taps, order, shift, from, to),
++        _ => lpc_run::<32>(plane, taps, order, shift, from, to),
++    }
++}
++
++#[inline(always)]
++fn lpc_run<const N: usize>(plane: &mut [i32], taps: &[i32; MAX_TAPS], order: usize, shift: u32, from: usize, to: usize) {
++    // Frames with fewer than N frames of history: a loop over the order.
++    let unrolled = from.max(N).min(to);
++    for frame in from..unrolled {
++        let mut sum = 0i64;
++        for (j, &tap) in taps[..order].iter().enumerate() {
++            sum = sum.wrapping_add(i64::from(tap) * i64::from(plane[frame - 1 - j]));
++        }
++        plane[frame] = plane[frame].wrapping_add((sum >> shift) as i32);
++    }
++    let taps: &[i32; N] = taps[..N].try_into().unwrap();
++    for frame in unrolled..to {
++        // history[N - 1 - j] is the sample j + 1 frames back; history[N] this frame's.
++        let history = &mut plane[frame - N..=frame];
++        let mut sum = 0i64;
++        for j in 0..N {
++            sum = sum.wrapping_add(i64::from(taps[j]) * i64::from(history[N - 1 - j]));
++        }
++        history[N] = history[N].wrapping_add((sum >> shift) as i32);
++    }
++}
++
++/// `lpc_pair` with the shortest kernel that covers `order`.
++#[inline(always)]
++#[allow(dead_code)]
++fn lpc_pair_any<V: V4>(
++    p0: &mut [i32],
++    p1: &mut [i32],
++    from: usize,
++    to: usize,
++    taps: &[[i32; MAX_TAPS]; 2],
++    shift: [u32; 2],
++    order: usize,
++) -> usize {
++    match order {
++        0..=4 => lpc_pair::<V, 4>(p0, p1, from, to, taps, shift),
++        5..=8 => lpc_pair::<V, 8>(p0, p1, from, to, taps, shift),
++        9..=12 => lpc_pair::<V, 12>(p0, p1, from, to, taps, shift),
++        _ => lpc_pair::<V, 32>(p0, p1, from, to, taps, shift),
++    }
++}
++
++/// Linear prediction of both planes at once, frames `from..` in whole groups
++/// of N; returns the first frame not predicted (at most `to`).
++///
++/// Transposed form. `s[j]` holds, for each plane in one 64-bit vector lane,
++/// the part of the prediction of frame `i + j` that is known before frame
++/// `i`: the taps `j..N` times the samples up to frame `i - 1`, plus that
++/// frame's residual shifted left by the lane's shift. A step is then
++///     y    = s[0] >> shift                     (the new samples, both planes)
++///     s[j] = s[j + 1] + taps[j] * y            (j < N - 1)
++///     s[N - 1] = (residual of frame i + N << shift) + taps[N - 1] * y
++/// which is N independent multiply-accumulates of one new vector: no
++/// multiply waits for another. The loop-carried path is one `dpadd_s.d` and
++/// one `sra.d`. Per lane this is the sum upstream computes, in 64 bits:
++/// adding `residual << shift` before the arithmetic shift equals adding the
++/// residual after it, and the low 32 bits are the wrapping sum upstream
++/// stores. Sums cannot overflow 64 bits: |tap| <= 2^14 and |sample| <= 2^31,
++/// 32 of them.
++///
++/// Needs: N a multiple of 4, taps past N zero, each lane's order `<= from`.
++/// Reads residuals up to N frames past the group it predicts, so it stops
++/// 2 N frames before the end of the planes.
++#[inline(always)]
++#[allow(dead_code)]
++fn lpc_pair<V: V4, const N: usize>(
++    p0: &mut [i32],
++    p1: &mut [i32],
++    from: usize,
++    to: usize,
++    taps: &[[i32; MAX_TAPS]; 2],
++    shift: [u32; 2],
++) -> usize {
++    let n = p0.len().min(p1.len());
++    let to = to.min(n.saturating_sub(N));
++    if from + N > to {
++        return from;
++    }
++    let c: [V; N] = std::array::from_fn(|j| V::new([taps[0][j], 0, taps[1][j], 0]));
++    // Residuals arrive as [plane 0 frame f, plane 0 frame f + 1, plane 1
++    // frame f, plane 1 frame f + 1]: one multiplier vector per frame parity.
++    let (one0, one1) = (1 << shift[0], 1 << shift[1]);
++    let scale_even = V::new([one0, 0, one1, 0]);
++    let scale_odd = V::new([0, one0, 0, one1]);
++    let shift_by = V::new([shift[0] as i32, 0, shift[1] as i32, 0]);
++    let mut s: [V; N] = std::array::from_fn(|j| {
++        let known = |plane: &[i32], taps: &[i32; MAX_TAPS], shift: u32| {
++            let mut sum = i64::from(plane[from + j]) << shift;
++            for m in j..N {
++                // Tap m multiplies frame from + j - 1 - m; a non-zero tap is
++                // below the order, which is at most `from`.
++                if taps[m] != 0 {
++                    sum = sum.wrapping_add(i64::from(taps[m]) * i64::from(plane[from + j - 1 - m]));
++                }
++            }
++            sum
++        };
++        let (a, b) = (known(p0, &taps[0], shift[0]), known(p1, &taps[1], shift[1]));
++        V::new([a as i32, (a >> 32) as i32, b as i32, (b >> 32) as i32])
++    });
++    let mut i = from;
++    while i + N <= to {
++        // N frames to write, then N frames of residuals to read.
++        let (b0, b1) = (&mut p0[i..i + 2 * N], &mut p1[i..i + 2 * N]);
++        for t in (0..N).step_by(4) {
++            let (r0, r1) = (V::load(&b0[t + N..]), V::load(&b1[t + N..]));
++            let (ra, rb) = (V::low_halves(r0, r1), V::high_halves(r0, r1));
++            let y0 = lpc_step(&mut s, &c, shift_by, ra, scale_even);
++            let y1 = lpc_step(&mut s, &c, shift_by, ra, scale_odd);
++            let y2 = lpc_step(&mut s, &c, shift_by, rb, scale_even);
++            let y3 = lpc_step(&mut s, &c, shift_by, rb, scale_odd);
++            // [plane 0, plane 1] of two frames each, then the planes apart.
++            let (ya, yb) = (V::evens(y0, y1), V::evens(y2, y3));
++            V::evens(ya, yb).store(&mut b0[t..]);
++            V::odds(ya, yb).store(&mut b1[t..]);
++        }
++        i += N;
++    }
++    i
++}
++
++#[inline(always)]
++#[allow(dead_code)]
++fn lpc_step<V: V4, const N: usize>(s: &mut [V; N], c: &[V; N], shift_by: V, residuals: V, scale: V) -> V {
++    let y = s[0].sra64(shift_by);
++    for j in 0..N - 1 {
++        s[j] = s[j + 1].dot_add(y, c[j]);
++    }
++    s[N - 1] = V::dot(residuals, scale).dot_add(y, c[N - 1]);
++    y
++}
++
++/// Frames `from..to` of two planes of samples to output, in place: wasted-bits
++/// shift, inter-channel decorrelation, output shift. Returns `to`.
++#[allow(clippy::too_many_arguments)]
++fn output_range(
++    p0: &mut [i32],
++    p1: &mut [i32],
++    from: usize,
++    to: usize,
++    mix: Mix,
++    wasted: [u32; 2],
++    out_shift: u32,
++    kernel: Option<OutputKernel>,
++) -> usize {
++    let from = match kernel {
++        Some(kernel) => kernel(p0, p1, from, to, mix, wasted, out_shift),
++        None => from,
++    };
++    let (p0, p1) = (&mut p0[from..to], &mut p1[from..to]);
++    match mix {
++        Mix::Independent => output_scalar(p0, p1, wasted, out_shift, |a, b| (a, b)),
++        Mix::LeftSide => output_scalar(p0, p1, wasted, out_shift, |a, b| (a, a.wrapping_sub(b))),
++        Mix::RightSide => output_scalar(p0, p1, wasted, out_shift, |a, b| (a.wrapping_add(b), b)),
++        Mix::MidSide => output_scalar(p0, p1, wasted, out_shift, |a, b| {
++            // Upstream's decorrelate_mid_side: mid doubled, with the side's low bit.
++            let mid = (a << 1) | (b & 1);
++            (mid.wrapping_add(b) >> 1, mid.wrapping_sub(b) >> 1)
++        }),
++    }
++    to
++}
++
++#[inline(always)]
++fn output_scalar(p0: &mut [i32], p1: &mut [i32], wasted: [u32; 2], out_shift: u32, mix: impl Fn(i32, i32) -> (i32, i32)) {
++    for (l, r) in p0.iter_mut().zip(p1.iter_mut()) {
++        let (a, b) = mix(l.wrapping_shl(wasted[0]), r.wrapping_shl(wasted[1]));
++        *l = a.wrapping_shl(out_shift);
++        *r = b.wrapping_shl(out_shift);
++    }
++}
++
++/// `output_range` four frames at a time; returns the first frame not written.
++#[inline(always)]
++#[allow(dead_code)]
++fn output_vector<V: V4>(
++    p0: &mut [i32],
++    p1: &mut [i32],
++    from: usize,
++    to: usize,
++    mix: Mix,
++    wasted: [u32; 2],
++    out_shift: u32,
++) -> usize {
++    let whole = from + ((to - from) & !3);
++    let (p0, p1) = (&mut p0[from..whole], &mut p1[from..whole]);
++    match mix {
++        Mix::Independent => output_quads::<V>(p0, p1, wasted, out_shift, |a, b| (a, b)),
++        Mix::LeftSide => output_quads::<V>(p0, p1, wasted, out_shift, |a, b| (a, a.sub(b))),
++        Mix::RightSide => output_quads::<V>(p0, p1, wasted, out_shift, |a, b| (a.add(b), b)),
++        Mix::MidSide => {
++            let one = V::new([1; 4]);
++            output_quads::<V>(p0, p1, wasted, out_shift, move |a, b| {
++                let mid = a.shl(one).or(b.and(one));
++                (mid.add(b).sra1(), mid.sub(b).sra1())
++            })
++        }
++    }
++    whole
++}
++
++#[inline(always)]
++#[allow(dead_code)]
++fn output_quads<V: V4>(p0: &mut [i32], p1: &mut [i32], wasted: [u32; 2], out_shift: u32, mix: impl Fn(V, V) -> (V, V)) {
++    let wasted0 = V::new([wasted[0] as i32; 4]);
++    let wasted1 = V::new([wasted[1] as i32; 4]);
++    let out = V::new([out_shift as i32; 4]);
++    for (l, r) in p0.chunks_exact_mut(4).zip(p1.chunks_exact_mut(4)) {
++        let (a, b) = mix(V::load(l).shl(wasted0), V::load(r).shl(wasted1));
++        a.shl(out).store(l);
++        b.shl(out).store(r);
++    }
++}
++
++#[cfg(target_arch = "mips")]
++#[allow(unsafe_code)]
++mod msa_entry {
++    //! The MSA instances of the vector kernels: one call per run of frames
++    //! (at most `CHUNK`), the vector operations inlined into these functions.
++    use super::{Mix, MAX_TAPS};
++    use crate::q2simd::{msa, M4};
++
++    #[target_feature(enable = "msa")]
++    unsafe fn lpc_pair(
++        p0: &mut [i32],
++        p1: &mut [i32],
++        from: usize,
++        to: usize,
++        taps: &[[i32; MAX_TAPS]; 2],
++        shift: [u32; 2],
++        order: usize,
++    ) -> usize {
++        super::lpc_pair_any::<M4>(p0, p1, from, to, taps, shift, order)
++    }
++
++    /// Predicts nothing (returns `from`) when the kernel does not report MSA.
++    pub(super) fn lpc_pair_checked(
++        p0: &mut [i32],
++        p1: &mut [i32],
++        from: usize,
++        to: usize,
++        taps: &[[i32; MAX_TAPS]; 2],
++        shift: [u32; 2],
++        order: usize,
++    ) -> usize {
++        if !msa() {
++            return from;
++        }
++        // SAFETY: the kernel reports MSA.
++        unsafe { lpc_pair(p0, p1, from, to, taps, shift, order) }
++    }
++
++    #[target_feature(enable = "msa")]
++    unsafe fn output(
++        p0: &mut [i32],
++        p1: &mut [i32],
++        from: usize,
++        to: usize,
++        mix: Mix,
++        wasted: [u32; 2],
++        out_shift: u32,
++    ) -> usize {
++        super::output_vector::<M4>(p0, p1, from, to, mix, wasted, out_shift)
++    }
++
++    /// Writes nothing (returns `from`) when the kernel does not report MSA.
++    pub(super) fn output_checked(
++        p0: &mut [i32],
++        p1: &mut [i32],
++        from: usize,
++        to: usize,
++        mix: Mix,
++        wasted: [u32; 2],
++        out_shift: u32,
++    ) -> usize {
++        if !msa() {
++            return from;
++        }
++        // SAFETY: the kernel reports MSA.
++        unsafe { output(p0, p1, from, to, mix, wasted, out_shift) }
++    }
++}
++
++/// `q2::selftest`: the scalar code against the current kernels on generated input.
++pub(crate) fn selftest() -> Result<u32, String> {
++    let msa = crate::q2simd::msa();
++    compare_kernels(pair_kernel(msa), output_kernel(msa), 0x51ed_270b, 600)
++}
++
++/// Random subframe pairs through `finish_pair`, scalar against the given kernels.
++pub(crate) fn compare_kernels(
++    pair: Option<PairKernel>,
++    output: Option<OutputKernel>,
++    seed: u32,
++    rounds: u32,
++) -> Result<u32, String> {
++    use crate::q2simd::Rng;
++    let mut rng = Rng(seed);
++    let mut checks = 0;
++    let random_sub = |rng: &mut Rng, n: usize| {
++        let mut sub = Sub::plain();
++        sub.wasted = if rng.below(4) == 0 { rng.below(8) } else { 0 };
++        match rng.below(8) {
++            0 => {}
++            1 => sub.predictor = Predictor::Fixed((rng.below(5) as usize).min(n)),
++            _ => {
++                let order = match rng.below(4) {
++                    0 => 1 + rng.below(32),
++                    1 => 1 + rng.below(4),
++                    _ => 1 + rng.below(12),
++                } as usize;
++                let order = order.min(n);
++                let precision = 1 + rng.below(15);
++                for tap in sub.taps[..order].iter_mut() {
++                    *tap = rng.signed(precision);
++                }
++                sub.shift = rng.below(16);
++                sub.predictor = Predictor::Lpc(order);
++            }
++        }
++        sub
++    };
++    for round in 0..rounds {
++        let n = 1 + rng.below(if round % 8 == 0 { 1500 } else { 90 }) as usize;
++        let bits = 1 + rng.below(32);
++        let a: Vec<i32> = (0..n).map(|_| rng.signed(bits)).collect();
++        let b: Vec<i32> = (0..n).map(|_| rng.signed(bits)).collect();
++        let subs = [random_sub(&mut rng, n), random_sub(&mut rng, n)];
++        let mix = [Mix::Independent, Mix::LeftSide, Mix::RightSide, Mix::MidSide][rng.below(4) as usize];
++        let out_shift = rng.below(32);
++        let (mut a0, mut b0, mut a1, mut b1) = (a.clone(), b.clone(), a, b);
++        finish_pair(&mut a0, &mut b0, &subs, mix, out_shift, (None, None));
++        // Each kernel alone, then both.
++        let kernels = [(pair, None), (None, output), (pair, output)][round as usize % 3];
++        finish_pair(&mut a1, &mut b1, &subs, mix, out_shift, kernels);
++        if a0 != a1 || b0 != b1 {
++            return Err(format!(
++                "round {}: {} frames, {:?} shift {} and {:?} shift {}, {:?}, wasted {} {}, output shift {}",
++                round, n, subs[0].predictor, subs[0].shift, subs[1].predictor, subs[1].shift, mix, subs[0].wasted,
++                subs[1].wasted, out_shift
++            ));
++        }
++        checks += 2 * n as u32;
++    }
++    Ok(checks)
++}
++
++#[cfg(test)]
++#[path = "q2tests.rs"]
++mod tests;
+diff -ruN a/src/q2prof.rs b/src/q2prof.rs
+--- a/src/q2prof.rs	1969-12-31 18:00:00.000000000 -0600
++++ b/src/q2prof.rs	2026-11-18 02:56:54.307952931 -0600
+@@ -0,0 +1,61 @@
++// [q2 patch] Stage timers for the Q2 optimization rig (docs/optimization-rig.md).
++// Compiled only with `--cfg q2_flac_profile` (tests/perf/build-variant.sh
++// RUSTFLAGS_EXTRA); a normal build contains none of this.
++//
++// Nanoseconds per stage accumulate in 32-bit counters (the Q2 has no 64-bit
++// atomics), enough for 4.2 s per stage. `q2::profile_take` returns and clears
++// them.
++use std::sync::atomic::{AtomicU32, Ordering};
++use std::time::Instant;
++
++pub const STAGES: usize = 8;
++/// The whole of `decode_inner`.
++pub const PACKET: usize = 0;
++/// Frame sync and header.
++pub const HEADER: usize = 1;
++/// Residuals: partition headers and Rice codes.
++pub const RESIDUAL: usize = 2;
++/// Fixed and LPC prediction.
++pub const PREDICT: usize = 3;
++/// Inter-channel decorrelation, wasted-bits and output shifts.
++pub const OUTPUT: usize = 4;
++/// Subframe headers, warm-up samples, coefficients, constant and verbatim subframes.
++pub const SUBFRAME_OTHER: usize = 5;
++
++static NS: [AtomicU32; STAGES] = [const { AtomicU32::new(0) }; STAGES];
++static CALLS: [AtomicU32; STAGES] = [const { AtomicU32::new(0) }; STAGES];
++
++pub struct Span(usize, Instant);
++
++#[inline(always)]
++pub fn span(stage: usize) -> Span {
++    Span(stage, Instant::now())
++}
++
++impl Drop for Span {
++    #[inline(always)]
++    fn drop(&mut self) {
++        let ns = self.1.elapsed().as_nanos() as u32;
++        NS[self.0].fetch_add(ns, Ordering::Relaxed);
++        CALLS[self.0].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++/// Stage nanoseconds, stage calls, and the mean cost of one empty span in
++/// nanoseconds (4096 spans); clears the counters.
++pub fn take() -> ([u32; STAGES], [u32; STAGES], u32) {
++    let mut ns = [0; STAGES];
++    let mut calls = [0; STAGES];
++    for i in 0..STAGES {
++        ns[i] = NS[i].swap(0, Ordering::Relaxed);
++        calls[i] = CALLS[i].swap(0, Ordering::Relaxed);
++    }
++    let t = Instant::now();
++    for _ in 0..4096 {
++        drop(span(STAGES - 1));
++    }
++    let empty = (t.elapsed().as_nanos() / 4096) as u32;
++    NS[STAGES - 1].store(0, Ordering::Relaxed);
++    CALLS[STAGES - 1].store(0, Ordering::Relaxed);
++    (ns, calls, empty)
++}
+diff -ruN a/src/q2simd.rs b/src/q2simd.rs
+--- a/src/q2simd.rs	1969-12-31 18:00:00.000000000 -0600
++++ b/src/q2simd.rs	2026-11-18 02:56:54.308000902 -0600
+@@ -0,0 +1,319 @@
++// [q2 patch] Four-word vectors for the restructured kernels, and the MSA
++// capability check (README.q2.md).
++//
++// The kernels in q2frame.rs are written once over `V4`. `M4` is one MSA
++// register and exists on MIPS only, inside `#[target_feature(enable = "msa")]`
++// entry points reached only when the kernel reports MSA (`msa()`). `P4` is the
++// same arithmetic on an array; the unit tests run the kernels on it, so the
++// host tests cover the kernels' structure and the emulator and the Q2 cover
++// the instructions (`q2::selftest`).
++
++use std::sync::atomic::{AtomicU8, Ordering};
++
++/// Four 32-bit words; some operations treat them as two 64-bit lanes (words
++/// 0-1 and 2-3, low word first, as MSA does on a little-endian CPU).
++pub(crate) trait V4: Copy {
++    fn new(w: [i32; 4]) -> Self;
++    /// `s[0..4]`.
++    fn load(s: &[i32]) -> Self;
++    /// To `d[0..4]`.
++    fn store(self, d: &mut [i32]);
++    /// Per word, wrapping.
++    fn add(self, o: Self) -> Self;
++    fn sub(self, o: Self) -> Self;
++    /// Per word, by the low five bits of `n`'s word.
++    fn shl(self, n: Self) -> Self;
++    /// Per word, arithmetic shift right by one.
++    fn sra1(self) -> Self;
++    fn or(self, o: Self) -> Self;
++    fn and(self, o: Self) -> Self;
++    /// `[lo0, lo2, hi0, hi2]`.
++    fn evens(lo: Self, hi: Self) -> Self;
++    /// `[lo1, lo3, hi1, hi3]`.
++    fn odds(lo: Self, hi: Self) -> Self;
++    /// `[a0, a1, b0, b1]`.
++    fn low_halves(a: Self, b: Self) -> Self;
++    /// `[a2, a3, b2, b3]`.
++    fn high_halves(a: Self, b: Self) -> Self;
++    /// Two 64-bit lanes: `a0*b0 + a1*b1` and `a2*b2 + a3*b3`, signed 32x32 to
++    /// 64-bit products, wrapping sum.
++    fn dot(a: Self, b: Self) -> Self;
++    /// `self + dot(a, b)` per 64-bit lane, wrapping.
++    fn dot_add(self, a: Self, b: Self) -> Self;
++    /// Per 64-bit lane, arithmetic shift right by the low six bits of `n`'s lane.
++    fn sra64(self, n: Self) -> Self;
++}
++
++/// Portable vectors: the reference semantics of every `V4` operation.
++#[cfg(test)]
++#[derive(Clone, Copy, Debug, PartialEq)]
++pub(crate) struct P4(pub [i32; 4]);
++
++#[cfg(test)]
++impl P4 {
++    fn lanes(self) -> [i64; 2] {
++        let w = self.0;
++        [
++            (w[0] as u32 as u64 | (w[1] as u32 as u64) << 32) as i64,
++            (w[2] as u32 as u64 | (w[3] as u32 as u64) << 32) as i64,
++        ]
++    }
++    fn from_lanes(l: [i64; 2]) -> Self {
++        P4([l[0] as i32, (l[0] >> 32) as i32, l[1] as i32, (l[1] >> 32) as i32])
++    }
++    fn map2(self, o: Self, f: impl Fn(i32, i32) -> i32) -> Self {
++        P4([f(self.0[0], o.0[0]), f(self.0[1], o.0[1]), f(self.0[2], o.0[2]), f(self.0[3], o.0[3])])
++    }
++}
++
++#[cfg(test)]
++impl V4 for P4 {
++    fn new(w: [i32; 4]) -> Self {
++        P4(w)
++    }
++    fn load(s: &[i32]) -> Self {
++        P4([s[0], s[1], s[2], s[3]])
++    }
++    fn store(self, d: &mut [i32]) {
++        d[..4].copy_from_slice(&self.0);
++    }
++    fn add(self, o: Self) -> Self {
++        self.map2(o, i32::wrapping_add)
++    }
++    fn sub(self, o: Self) -> Self {
++        self.map2(o, i32::wrapping_sub)
++    }
++    fn shl(self, n: Self) -> Self {
++        self.map2(n, |a, n| a.wrapping_shl(n as u32))
++    }
++    fn sra1(self) -> Self {
++        self.map2(self, |a, _| a >> 1)
++    }
++    fn or(self, o: Self) -> Self {
++        self.map2(o, |a, b| a | b)
++    }
++    fn and(self, o: Self) -> Self {
++        self.map2(o, |a, b| a & b)
++    }
++    fn evens(lo: Self, hi: Self) -> Self {
++        P4([lo.0[0], lo.0[2], hi.0[0], hi.0[2]])
++    }
++    fn odds(lo: Self, hi: Self) -> Self {
++        P4([lo.0[1], lo.0[3], hi.0[1], hi.0[3]])
++    }
++    fn low_halves(a: Self, b: Self) -> Self {
++        P4([a.0[0], a.0[1], b.0[0], b.0[1]])
++    }
++    fn high_halves(a: Self, b: Self) -> Self {
++        P4([a.0[2], a.0[3], b.0[2], b.0[3]])
++    }
++    fn dot(a: Self, b: Self) -> Self {
++        P4([0; 4]).dot_add(a, b)
++    }
++    fn dot_add(self, a: Self, b: Self) -> Self {
++        let p = |i: usize| (a.0[i] as i64).wrapping_mul(b.0[i] as i64);
++        let l = self.lanes();
++        P4::from_lanes([
++            l[0].wrapping_add(p(0)).wrapping_add(p(1)),
++            l[1].wrapping_add(p(2)).wrapping_add(p(3)),
++        ])
++    }
++    fn sra64(self, n: Self) -> Self {
++        let (l, n) = (self.lanes(), n.lanes());
++        P4::from_lanes([l[0].wrapping_shr(n[0] as u32), l[1].wrapping_shr(n[1] as u32)])
++    }
++}
++
++#[cfg(target_arch = "mips")]
++pub(crate) use mips::M4;
++
++#[cfg(target_arch = "mips")]
++#[allow(unsafe_code)]
++mod mips {
++    //! Every method here runs MSA instructions. `M4` values exist only
++    //! inside the `#[target_feature(enable = "msa")]` entry points, which
++    //! are called only after `msa()` returned true; that is the safety
++    //! argument of every `unsafe` block below. The loads and stores take a
++    //! bounds-checked four-element slice; MSA's `ld.w`/`st.w` have no
++    //! alignment requirement.
++    //!
++    //! `core::arch::mips` intrinsics, as in the MP3 decoder's patch
++    //! (crates/vendor/symphonia-bundle-mp3/README.q2.md).
++    use super::V4;
++    use core::arch::mips::*;
++    use std::mem::transmute;
++
++    #[repr(C, align(16))]
++    struct Words([i32; 4]);
++
++    /// One MSA register.
++    #[derive(Clone, Copy)]
++    pub(crate) struct M4(v4i32);
++
++    #[inline(always)]
++    fn d(v: v4i32) -> v2i64 {
++        unsafe { transmute::<v4i32, v2i64>(v) }
++    }
++    #[inline(always)]
++    fn w(v: v2i64) -> v4i32 {
++        unsafe { transmute::<v2i64, v4i32>(v) }
++    }
++    #[inline(always)]
++    fn b(v: v4i32) -> v16u8 {
++        unsafe { transmute::<v4i32, v16u8>(v) }
++    }
++    #[inline(always)]
++    fn wb(v: v16u8) -> v4i32 {
++        unsafe { transmute::<v16u8, v4i32>(v) }
++    }
++
++    impl V4 for M4 {
++        #[inline(always)]
++        fn new(words: [i32; 4]) -> Self {
++            // One aligned load; never assembled lane by lane (insert.w is
++            // 2 cycles per lane on top of 3.5 from the GPR, x2000-msa.md).
++            let words = Words(words);
++            unsafe { M4(__msa_ld_w::<0>(words.0.as_ptr() as *mut u8)) }
++        }
++        #[inline(always)]
++        fn load(s: &[i32]) -> Self {
++            let s = &s[..4];
++            unsafe { M4(__msa_ld_w::<0>(s.as_ptr() as *mut u8)) }
++        }
++        #[inline(always)]
++        fn store(self, dst: &mut [i32]) {
++            let dst = &mut dst[..4];
++            unsafe { __msa_st_w::<0>(self.0, dst.as_mut_ptr() as *mut u8) }
++        }
++        #[inline(always)]
++        fn add(self, o: Self) -> Self {
++            unsafe { M4(__msa_addv_w(self.0, o.0)) }
++        }
++        #[inline(always)]
++        fn sub(self, o: Self) -> Self {
++            unsafe { M4(__msa_subv_w(self.0, o.0)) }
++        }
++        #[inline(always)]
++        fn shl(self, n: Self) -> Self {
++            unsafe { M4(__msa_sll_w(self.0, n.0)) }
++        }
++        #[inline(always)]
++        fn sra1(self) -> Self {
++            unsafe { M4(__msa_srai_w::<1>(self.0)) }
++        }
++        #[inline(always)]
++        fn or(self, o: Self) -> Self {
++            unsafe { M4(wb(__msa_or_v(b(self.0), b(o.0)))) }
++        }
++        #[inline(always)]
++        fn and(self, o: Self) -> Self {
++            unsafe { M4(wb(__msa_and_v(b(self.0), b(o.0)))) }
++        }
++        #[inline(always)]
++        fn evens(lo: Self, hi: Self) -> Self {
++            // pckev.w(a, b) is b0 b2 a0 a2.
++            unsafe { M4(__msa_pckev_w(hi.0, lo.0)) }
++        }
++        #[inline(always)]
++        fn odds(lo: Self, hi: Self) -> Self {
++            // pckod.w(a, b) is b1 b3 a1 a3.
++            unsafe { M4(__msa_pckod_w(hi.0, lo.0)) }
++        }
++        #[inline(always)]
++        fn low_halves(a: Self, o: Self) -> Self {
++            // ilvr.d(a, b) is b's low half, then a's.
++            unsafe { M4(w(__msa_ilvr_d(d(o.0), d(a.0)))) }
++        }
++        #[inline(always)]
++        fn high_halves(a: Self, o: Self) -> Self {
++            unsafe { M4(w(__msa_ilvl_d(d(o.0), d(a.0)))) }
++        }
++        #[inline(always)]
++        fn dot(a: Self, o: Self) -> Self {
++            unsafe { M4(w(__msa_dotp_s_d(a.0, o.0))) }
++        }
++        #[inline(always)]
++        fn dot_add(self, a: Self, o: Self) -> Self {
++            unsafe { M4(w(__msa_dpadd_s_d(d(self.0), a.0, o.0))) }
++        }
++        #[inline(always)]
++        fn sra64(self, n: Self) -> Self {
++            unsafe { M4(w(__msa_sra_d(d(self.0), d(n.0)))) }
++        }
++    }
++}
++
++// 0: not looked up yet, 1: scalar, 2: MSA. The capability never changes
++// within a process; concurrent first callers repeat the cheap lookup.
++static MSA: AtomicU8 = AtomicU8::new(0);
++
++/// Whether the kernels use MSA: on MIPS when the kernel publishes
++/// `HWCAP_MIPS_MSA` (and `set_msa` has not turned it off), never elsewhere.
++#[inline]
++pub(crate) fn msa() -> bool {
++    match MSA.load(Ordering::Relaxed) {
++        0 => {
++            let present = detect();
++            MSA.store(if present { 2 } else { 1 }, Ordering::Relaxed);
++            present
++        }
++        state => state == 2,
++    }
++}
++
++/// `Some(false)` forces the scalar kernels, `Some(true)` asks for MSA (still
++/// only where the kernel reports it), `None` returns to the default.
++pub(crate) fn set_msa(want: Option<bool>) {
++    let state = match want {
++        None => 0,
++        Some(want) => {
++            if want && detect() {
++                2
++            }
++            else {
++                1
++            }
++        }
++    };
++    MSA.store(state, Ordering::Relaxed);
++}
++
++#[cfg(all(target_arch = "mips", target_os = "linux", not(q2_flac_no_msa)))]
++#[allow(unsafe_code)]
++fn detect() -> bool {
++    extern "C" {
++        fn getauxval(kind: std::os::raw::c_ulong) -> std::os::raw::c_ulong;
++    }
++    const AT_HWCAP: std::os::raw::c_ulong = 16;
++    // Linux MIPS UAPI: HWCAP_MIPS_MSA = 1 << 1, published when the kernel
++    // saves MSA context.
++    const HWCAP_MIPS_MSA: std::os::raw::c_ulong = 1 << 1;
++    // SAFETY: getauxval takes no pointers and only reads the process's
++    // auxiliary vector; an unknown key returns 0.
++    unsafe { getauxval(AT_HWCAP) & HWCAP_MIPS_MSA != 0 }
++}
++
++#[cfg(not(all(target_arch = "mips", target_os = "linux", not(q2_flac_no_msa))))]
++fn detect() -> bool {
++    false
++}
++
++/// xorshift32 for the generated inputs of the unit tests and `q2::selftest`.
++pub(crate) struct Rng(pub u32);
++
++impl Rng {
++    pub(crate) fn next(&mut self) -> u32 {
++        self.0 ^= self.0 << 13;
++        self.0 ^= self.0 >> 17;
++        self.0 ^= self.0 << 5;
++        self.0
++    }
++    /// Uniform in `0..n`.
++    pub(crate) fn below(&mut self, n: u32) -> u32 {
++        self.next() % n
++    }
++    /// A signed value of `bits` bits (1..=32).
++    pub(crate) fn signed(&mut self, bits: u32) -> i32 {
++        (self.next() as i32) >> (32 - bits)
++    }
++}
+diff -ruN a/src/q2tests.rs b/src/q2tests.rs
+--- a/src/q2tests.rs	1969-12-31 18:00:00.000000000 -0600
++++ b/src/q2tests.rs	2026-11-18 02:56:54.308120517 -0600
+@@ -0,0 +1,490 @@
++// [q2 patch] Differential tests of the restructured decoder against
++// upstream's code (which stays in decoder.rs): generated frames of every
++// subframe type, mutated and truncated frames, and the vector kernels on the
++// portable vector type.
++
++use std::panic::{catch_unwind, AssertUnwindSafe};
++
++use symphonia_core::audio::{AudioBufferRef, Signal};
++use symphonia_core::codecs::{CodecParameters, Decoder, DecoderOptions, CODEC_TYPE_FLAC};
++use symphonia_core::formats::Packet;
++
++use super::{compare_kernels, lpc_pair_any, output_vector, Mix, MAX_TAPS};
++use crate::decoder::FlacDecoder;
++use crate::q2simd::{Rng, P4};
++
++fn pair_p4(
++    p0: &mut [i32],
++    p1: &mut [i32],
++    from: usize,
++    to: usize,
++    taps: &[[i32; MAX_TAPS]; 2],
++    shift: [u32; 2],
++    order: usize,
++) -> usize {
++    lpc_pair_any::<P4>(p0, p1, from, to, taps, shift, order)
++}
++
++fn output_p4(p0: &mut [i32], p1: &mut [i32], from: usize, to: usize, mix: Mix, wasted: [u32; 2], out_shift: u32) -> usize {
++    output_vector::<P4>(p0, p1, from, to, mix, wasted, out_shift)
++}
++
++/// The vector kernels (on the portable vectors) against the scalar code.
++#[test]
++fn vector_kernels_match_scalar() {
++    for seed in 1..=6u32 {
++        let checks = compare_kernels(Some(pair_p4), Some(output_p4), seed.wrapping_mul(0x9e37_79b9), 500).unwrap();
++        assert!(checks > 50_000);
++    }
++}
++
++/// `q2::selftest` passes (scalar against scalar off the Q2).
++#[test]
++fn selftest_passes() {
++    assert!(crate::q2::selftest().unwrap() > 10_000);
++}
++
++// A FLAC frame writer, enough for the decoder's whole syntax.
++
++struct Writer {
++    bytes: Vec<u8>,
++    acc: u64,
++    filled: u32,
++}
++
++impl Writer {
++    fn new() -> Self {
++        Writer { bytes: Vec::new(), acc: 0, filled: 0 }
++    }
++    fn put(&mut self, value: u32, bits: u32) {
++        assert!(bits <= 32);
++        if bits == 0 {
++            return;
++        }
++        let value = if bits == 32 { value } else { value & ((1 << bits) - 1) };
++        self.acc = (self.acc << bits) | u64::from(value);
++        self.filled += bits;
++        while self.filled >= 8 {
++            self.bytes.push((self.acc >> (self.filled - 8)) as u8);
++            self.filled -= 8;
++        }
++    }
++    fn unary(&mut self, zeros: u32) {
++        for _ in 0..zeros {
++            self.put(0, 1);
++        }
++        self.put(1, 1);
++    }
++    fn align(&mut self) {
++        if self.filled > 0 {
++            self.put(0, 8 - self.filled);
++        }
++    }
++}
++
++fn crc8(data: &[u8]) -> u8 {
++    let mut crc = 0u8;
++    for &byte in data {
++        crc ^= byte;
++        for _ in 0..8 {
++            crc = if crc & 0x80 != 0 { (crc << 1) ^ 0x07 } else { crc << 1 };
++        }
++    }
++    crc
++}
++
++fn stream_info(channels: u32, bps: u32, block_max: u16) -> Box<[u8]> {
++    let mut w = Writer::new();
++    w.put(16, 16);
++    w.put(u32::from(block_max.max(16)), 16);
++    w.put(0, 24);
++    w.put(0, 24);
++    w.put(44_100, 20);
++    w.put(channels - 1, 3);
++    w.put(bps - 1, 5);
++    w.put(0, 4);
++    w.put(0, 32);
++    for _ in 0..4 {
++        w.put(0, 32);
++    }
++    w.bytes.into_boxed_slice()
++}
++
++fn decoder(channels: u32, bps: u32, block_max: u16, restructured: bool) -> FlacDecoder {
++    let mut params = CodecParameters::new();
++    params.for_codec(CODEC_TYPE_FLAC).with_extra_data(stream_info(channels, bps, block_max));
++    let mut decoder = FlacDecoder::try_new(&params, &DecoderOptions::default()).unwrap();
++    decoder.q2_set_restructured(restructured);
++    decoder
++}
++
++fn fits(value: i64) -> bool {
++    value >= i64::from(i32::MIN) && value <= i64::from(i32::MAX)
++}
++
++fn fold(value: i32) -> u32 {
++    ((value << 1) ^ (value >> 31)) as u32
++}
++
++/// A test signal of `bits`-bit samples.
++fn signal(rng: &mut Rng, n: usize, bits: u32) -> Vec<i32> {
++    let (min, max) = (-(1i64 << (bits - 1)), (1i64 << (bits - 1)) - 1);
++    let clamp = |v: i64| v.clamp(min, max) as i32;
++    match rng.below(6) {
++        0 => (0..n).map(|_| rng.signed(bits)).collect(),
++        1 => (0..n).map(|_| rng.signed(bits.min(4))).collect(),
++        2 => {
++            let step = 1 + rng.below(bits);
++            let mut v = 0i64;
++            (0..n)
++                .map(|_| {
++                    v = (v + i64::from(rng.signed(step))).clamp(min, max);
++                    v as i32
++                })
++                .collect()
++        }
++        3 => vec![rng.signed(bits); n],
++        4 => {
++            // A full-scale triangle wave.
++            let period = 4 + rng.below(200) as i64;
++            (0..n as i64)
++                .map(|i| {
++                    let phase = i % period;
++                    let up = if phase * 2 < period { phase * 2 } else { (period - phase) * 2 };
++                    clamp(min + (max - min) * up / period)
++                })
++                .collect()
++        }
++        _ => (0..n).map(|i| if (i / (1 + rng.below(7) as usize)) % 2 == 0 { max as i32 } else { min as i32 }).collect(),
++    }
++}
++
++/// Writes residuals `res[prelude..]` in Rice partitions.
++fn write_residual(w: &mut Writer, rng: &mut Rng, res: &[i32], prelude: usize) {
++    let n = res.len();
++    // Partition orders that divide the block and leave room for the warm-up.
++    let mut orders = vec![0u32];
++    for order in 1..=15u32 {
++        if n % (1 << order) == 0 && (n >> order) >= prelude && (n >> order) > 0 {
++            orders.push(order);
++        }
++    }
++    let order = orders[rng.below(orders.len() as u32) as usize];
++    let partition = n >> order;
++    let widest = res[prelude..].iter().map(|&v| 32 - fold(v).leading_zeros()).max().unwrap_or(0);
++    // The 4-bit method reaches parameter 14; keep quotients below about 2^9.
++    let method = if widest > 14 + 9 || rng.below(3) == 0 { 1 } else { 0 };
++    w.put(method, 2);
++    w.put(order, 4);
++    let (parameter_bits, escape) = if method == 0 { (4, 15) } else { (5, 31) };
++    let mut from = prelude;
++    let mut to = partition;
++    loop {
++        let part = &res[from.min(to)..to];
++        let widest = part.iter().map(|&v| 32 - fold(v).leading_zeros()).max().unwrap_or(0);
++        let width = part
++            .iter()
++            .map(|&v| if v == 0 { 0 } else { 33 - (if v < 0 { !v } else { v }).leading_zeros() })
++            .max()
++            .unwrap_or(0);
++        if rng.below(10) == 0 && width <= 31 {
++            w.put(escape, parameter_bits);
++            let width = if width < 31 && rng.below(2) == 0 { width + 1 } else { width };
++            w.put(width, 5);
++            for &v in part {
++                w.put(v as u32, width);
++            }
++        }
++        else {
++            let lowest = widest.saturating_sub(9);
++            let k = (lowest + rng.below(6)).min(escape - 1).max(lowest.min(escape - 1));
++            assert!(widest.saturating_sub(k) <= 12);
++            w.put(k, parameter_bits);
++            for &v in part {
++                let folded = fold(v);
++                let quotient = if k >= 32 { 0 } else { folded >> k };
++                w.unary(quotient);
++                w.put(folded, k);
++            }
++        }
++        if to >= n {
++            break;
++        }
++        from = to;
++        to += partition;
++    }
++}
++
++/// One subframe coding `bps`-bit samples; returns nothing, the reference
++/// decoder defines the expected output.
++fn write_subframe(w: &mut Writer, rng: &mut Rng, n: usize, bps: u32) {
++    let wasted = if bps > 1 && rng.below(5) == 0 { 1 + rng.below((bps - 1).min(5)) } else { 0 };
++    let bits = bps - wasted;
++    let samples = signal(rng, n, bits);
++    let mut kind = rng.below(10);
++    // Residuals and coefficients, when the predictor's numbers fit.
++    let mut residual = samples.clone();
++    let mut order = 0usize;
++    let mut taps = [0i32; 32];
++    let (mut precision, mut shift) = (0u32, 0u32);
++    match kind {
++        0 => {}
++        1 => {}
++        2..=4 => {
++            order = (rng.below(5) as usize).min(n);
++            let table: [&[i64]; 5] = [&[], &[1], &[2, -1], &[3, -3, 1], &[4, -6, 4, -1]];
++            let weights = table[order];
++            for i in order..n {
++                let predicted: i64 = weights.iter().enumerate().map(|(j, &c)| c * i64::from(samples[i - 1 - j])).sum();
++                let r = i64::from(samples[i]) - predicted;
++                if !fits(r) || !fits(predicted) {
++                    kind = 1;
++                    break;
++                }
++                residual[i] = r as i32;
++            }
++        }
++        _ => {
++            order = match rng.below(4) {
++                0 => 1 + rng.below(32),
++                1 => 1 + rng.below(4),
++                _ => 1 + rng.below(12),
++            } as usize;
++            order = order.min(n);
++            precision = 1 + rng.below(15);
++            shift = if rng.below(4) == 0 { rng.below(16) } else { (precision + rng.below(3)).min(15) };
++            for tap in taps[..order].iter_mut() {
++                *tap = rng.signed(precision);
++            }
++            if rng.below(3) == 0 {
++                // Close to a real predictor: mostly the previous sample.
++                taps[0] = ((1i64 << shift) - 1).min((1i64 << (precision - 1)) - 1) as i32;
++            }
++            for i in order..n {
++                let sum: i64 = taps[..order].iter().enumerate().map(|(j, &c)| i64::from(c) * i64::from(samples[i - 1 - j])).sum();
++                let predicted = sum >> shift;
++                let r = i64::from(samples[i]) - predicted;
++                if !fits(r) || !fits(predicted) {
++                    kind = 1;
++                    break;
++                }
++                residual[i] = r as i32;
++            }
++        }
++    }
++    w.put(0, 1);
++    let code = match kind {
++        0 => 0x00,
++        1 => 0x01,
++        2..=4 => 0x08 | order as u32,
++        _ => 0x20 | (order as u32 - 1),
++    };
++    w.put(code, 6);
++    if wasted > 0 {
++        w.put(1, 1);
++        w.unary(wasted - 1);
++    }
++    else {
++        w.put(0, 1);
++    }
++    match kind {
++        0 => w.put(samples[0] as u32, bits),
++        1 => {
++            for &s in &samples {
++                w.put(s as u32, bits);
++            }
++        }
++        _ => {
++            for &s in &samples[..order] {
++                w.put(s as u32, bits);
++            }
++            if kind >= 5 {
++                w.put(precision - 1, 4);
++                w.put(shift, 5);
++                for &tap in &taps[..order] {
++                    w.put(tap as u32, precision);
++                }
++            }
++            write_residual(w, rng, &residual, order);
++        }
++    }
++}
++
++struct Stream {
++    channels: u32,
++    bps: u32,
++    block_max: u16,
++}
++
++/// A frame of `n` samples; returns the bytes and the length of the header.
++fn write_frame(rng: &mut Rng, stream: &Stream, n: usize) -> (Vec<u8>, usize) {
++    let mut w = Writer::new();
++    w.put(0xfff8, 16);
++    let block_code = if n <= 256 && rng.below(2) == 0 { 6 } else { 7 };
++    w.put(block_code, 4);
++    w.put(0x9, 4);
++    let assignment = if stream.channels == 2 && stream.bps <= 30 { [1, 8, 9, 10][rng.below(4) as usize] } else { stream.channels - 1 };
++    w.put(assignment, 4);
++    let bps_code = match stream.bps {
++        8 => 1,
++        12 => 2,
++        16 => 4,
++        20 => 5,
++        24 => 6,
++        _ => 0,
++    };
++    w.put(if rng.below(3) == 0 { 0 } else { bps_code }, 3);
++    w.put(0, 1);
++    w.put(rng.below(100), 8);
++    w.put(n as u32 - 1, if block_code == 6 { 8 } else { 16 });
++    let crc = crc8(&w.bytes);
++    w.put(u32::from(crc), 8);
++    let header = w.bytes.len();
++    for channel in 0..stream.channels {
++        let side = match assignment {
++            8 | 10 => channel == 1,
++            9 => channel == 0,
++            _ => false,
++        };
++        write_subframe(&mut w, rng, n, stream.bps + u32::from(side));
++    }
++    w.align();
++    w.put(0, 16);
++    (w.bytes, header)
++}
++
++#[derive(Debug, PartialEq)]
++enum Outcome {
++    Samples(Vec<Vec<i32>>),
++    Error(String),
++}
++
++/// `None`: the decoder panicked (upstream does on arithmetic overflow and
++/// some malformed frames when built with debug assertions).
++fn decode(decoder: &mut FlacDecoder, bytes: &[u8]) -> Option<Outcome> {
++    let packet = Packet::new_from_slice(0, 0, 0, bytes);
++    catch_unwind(AssertUnwindSafe(|| match decoder.decode(&packet) {
++        Ok(AudioBufferRef::S32(buf)) => {
++            Outcome::Samples((0..buf.spec().channels.count()).map(|c| buf.chan(c).to_vec()).collect())
++        }
++        Ok(_) => unreachable!(),
++        Err(error) => Outcome::Error(error.to_string()),
++    }))
++    .ok()
++}
++
++fn random_stream(rng: &mut Rng) -> Stream {
++    let channels = match rng.below(6) {
++        0 => 1,
++        1 => 3 + rng.below(6),
++        _ => 2,
++    };
++    let bps = match rng.below(8) {
++        0 => 8,
++        1 => 12,
++        2 | 3 => 16,
++        4 => 20,
++        5 | 6 => 24,
++        _ => 4 + rng.below(29),
++    };
++    Stream { channels, bps, block_max: 16 + rng.below(1200) as u16 }
++}
++
++fn random_block(rng: &mut Rng, stream: &Stream) -> usize {
++    match rng.below(4) {
++        0 => usize::from(stream.block_max),
++        1 => (16usize << rng.below(6)).min(usize::from(stream.block_max)),
++        _ => 1 + rng.below(u32::from(stream.block_max)) as usize,
++    }
++}
++
++/// Generated valid frames: the restructured decoder accepts every one and
++/// returns upstream's samples.
++#[test]
++fn valid_frames_match_upstream() {
++    let mut rng = Rng(0x0f1a_c0de);
++    let mut frames = 0;
++    for _ in 0..400 {
++        let stream = random_stream(&mut rng);
++        let mut ours = decoder(stream.channels, stream.bps, stream.block_max, true);
++        let mut theirs = decoder(stream.channels, stream.bps, stream.block_max, false);
++        // Several frames through one decoder pair: state carried between packets.
++        for _ in 0..4 {
++            let n = random_block(&mut rng, &stream);
++            let (bytes, _) = write_frame(&mut rng, &stream, n);
++            let expected = decode(&mut theirs, &bytes).expect("upstream panicked on a valid frame");
++            assert!(matches!(expected, Outcome::Samples(_)), "upstream rejected a valid frame: {:?}", expected);
++            let accepted = ours.q2_accepted();
++            let got = decode(&mut ours, &bytes).expect("restructured decoder panicked");
++            assert!(got == expected, "channels {} bps {} frames {}", stream.channels, stream.bps, n);
++            assert_eq!(ours.q2_accepted(), accepted + 1, "frame went to upstream's code");
++            frames += 1;
++        }
++    }
++    assert_eq!(frames, 1600);
++}
++
++/// Mutated and truncated frames: the same samples or the same error.
++#[test]
++fn damaged_frames_match_upstream() {
++    let mut rng = Rng(0xdead_10cc);
++    let (mut compared, mut errors, mut panics) = (0, 0, 0);
++    for round in 0..6000 {
++        let stream = random_stream(&mut rng);
++        let n = random_block(&mut rng, &stream);
++        let (mut bytes, header) = write_frame(&mut rng, &stream, n);
++        match round % 4 {
++            0 => {
++                let keep = header + rng.below((bytes.len() - header) as u32 + 1) as usize;
++                bytes.truncate(keep);
++            }
++            1 => {
++                for _ in 0..1 + rng.below(4) {
++                    let at = header + rng.below((bytes.len() - header) as u32) as usize;
++                    bytes[at] ^= 1 << rng.below(8);
++                }
++            }
++            2 => {
++                // Damage near the start: subframe headers and coefficients.
++                let span = (bytes.len() - header).min(12) as u32;
++                let at = header + rng.below(span) as usize;
++                bytes[at] = rng.next() as u8;
++            }
++            _ => {
++                for byte in bytes[header..].iter_mut() {
++                    *byte = rng.next() as u8;
++                }
++            }
++        }
++        let mut theirs = decoder(stream.channels, stream.bps, stream.block_max, false);
++        let Some(expected) = decode(&mut theirs, &bytes)
++        else {
++            panics += 1;
++            continue;
++        };
++        let mut ours = decoder(stream.channels, stream.bps, stream.block_max, true);
++        let got = decode(&mut ours, &bytes).expect("restructured decoder panicked where upstream did not");
++        if got != expected {
++            let describe = |o: &Outcome| match o {
++                Outcome::Error(e) => e.clone(),
++                Outcome::Samples(s) => format!("{} channels of {} samples", s.len(), s[0].len()),
++            };
++            if let (Outcome::Samples(a), Outcome::Samples(b)) = (&got, &expected) {
++                for (c, (a, b)) in a.iter().zip(b).enumerate() {
++                    if let Some(i) = (0..a.len()).find(|&i| a[i] != b[i]) {
++                        eprintln!("channel {} first difference at {}: {:#x} vs {:#x}", c, i, a[i], b[i]);
++                    }
++                }
++            }
++            panic!(
++                "round {}: channels {} bps {} frames {}: ours {}, upstream {}",
++                round, stream.channels, stream.bps, n, describe(&got), describe(&expected)
++            );
++        }
++        compared += 1;
++        errors += u32::from(matches!(expected, Outcome::Error(_)));
++    }
++    // Both outcomes are exercised.
++    assert!(compared > 3000, "{} compared, {} upstream panics", compared, panics);
++    assert!(errors > 500 && compared - errors > 500, "{} errors of {}", errors, compared);
++}
