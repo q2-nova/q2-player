@@ -70,9 +70,10 @@ def stage(directory, repository, tag, commit, metadata_path, os_repo):
     existing = api(endpoint, '--paginate', '--slurp')
     if any(row['tag_name'] == tag for page in existing for row in page):
         raise ValueError('a release or draft already uses this stock tag')
+    # The workflow has already verified the existing signed tag. Do not
+    # request a target or latest-release state change when creating its draft.
     draft = api(endpoint, '-X', 'POST', '-f', f'tag_name={tag}',
-                '-f', f'target_commitish={commit}', '-F', 'draft=true',
-                '-F', 'prerelease=true', '-f', 'make_latest=false',
+                '-F', 'draft=true', '-F', 'prerelease=true',
                 '-f', f'name=Q2 physical qualification {tag}',
                 '-f', 'body=Maintainer-only physical qualification. Keep this draft private. '
                       f'Candidate firmware: {version}. Provisional starting firmware: {starting}. '
