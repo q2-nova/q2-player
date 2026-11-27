@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pack and boot an unpublished Q2 emulator candidate using the pinned OS package format."""
+"""Pack and smoke-test unpublished stock or emulator Q2 candidates."""
 import argparse
 import hashlib
 import importlib.util
@@ -82,17 +82,86 @@ def pack(args, pins, fmt):
                          ('usr/libexec/q2-network/tsrsd', m['tsrsd']['sha256'])]:
         if sha(filesystem_tool('unsquashfs', image, '-cat', 'rootfs.squashfs', name)) != digest:
             raise ValueError(f'packaged executable differs from paired build: {name}')
-    # Read the package back before publication. A failed check leaves no final archive.
+    print(json.dumps(write_package(args, image, m, fmt), indent=2))
+
+
+def write_package(args, image, manifest, fmt):
+    # A failed readback leaves no final archive.
     args.out.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryDirectory(dir=args.out) as tmp:
         staged = Path(tmp) / 'update.tar'
         report = fmt.build_package(image / 'xImage', image / 'rootfs.squashfs', staged,
                                    args.version, args.installed_version)
-        blobs, _ = fmt.read_package(staged)
-        for member, name in [(fmt.KERNEL, 'xImage'), (fmt.ROOTFS, 'rootfs.squashfs')]:
-            if sha(blobs[member]) != m['artifacts'][name]['sha256']:
-                raise ValueError(f'package readback differs: {name}')
+        check_package(staged, report['update_tar_sha256'], args.version, manifest, fmt)
         staged.rename(args.out / 'update.tar')
+    return report
+
+
+def check_package(package, expected_sha, version, manifest, fmt):
+    blobs, report = fmt.read_package(package, expected_sha)
+    if report['version'] != version:
+        raise ValueError('package readback version differs from the selected version')
+    for member, name in ((fmt.KERNEL, 'xImage'), (fmt.ROOTFS, 'rootfs.squashfs')):
+        if sha(blobs[member]) != manifest['artifacts'][name]['sha256']:
+            raise ValueError(f'package readback differs: {name}')
+
+
+def stock_image(image, manifest, pins, source, version):
+    m = manifest
+    if (m.get('qemu_fixture') is not False or m.get('emulator_shell') is not False
+            or m.get('diagnostic_ssh') != {'profile': 'disabled'}
+            or m.get('integration_hook_present') is not True
+            or m.get('os_source_commit') != pins['q2-os']
+            or m.get('app_source_commit') != source or m.get('kernel_source_commit') != pins['linux']
+            or m.get('tailscale_daemon') != 'rs' or m.get('tsrsd', {}).get('source_commit') != pins['tsrs']):
+        raise ValueError('stock candidate needs the locked keyless production image with real services')
+    for name in ('xImage', 'rootfs.squashfs', 'rescue.cpio', 'shanling-q2.dtb'):
+        path = image / name
+        identity = m['artifacts'][name]
+        if (path.is_symlink() or not path.is_file() or path.stat().st_size != identity['bytes']
+                or sha(path.read_bytes()) != identity['sha256']):
+            raise ValueError(f'stock image artifact differs from the build manifest: {name}')
+
+    stock_root(image, pins, source, version)
+    with (image / 'rescue.cpio').open('rb') as archive:
+        listing = subprocess.check_output(['cpio', '-it', '--quiet'], stdin=archive).decode().splitlines()
+    check_packed_keys({name.removeprefix('./') for name in listing})
+    for name, digest in [('usr/bin/q2nd', m['app_sha256']),
+                         ('usr/libexec/q2-network/q2-portal', m['portal_helper']['sha256']),
+                         ('usr/libexec/q2-network/tsrsd', m['tsrsd']['sha256'])]:
+        if sha(filesystem_tool('unsquashfs', image, '-cat', 'rootfs.squashfs', name)) != digest:
+            raise ValueError(f'stock executable differs from its installed OS manifest: {name}')
+
+
+def stock_root(image, pins, source, version):
+    rootfs = 'rootfs.squashfs'
+    listing = filesystem_tool('unsquashfs', image, '-ls', rootfs).decode().splitlines()
+    names = {name.removeprefix('squashfs-root/') for name in listing}
+    check_packed_keys(names)
+    if 'sbin/q2-installed-services' not in names or 'sbin/q2-sim-ready' in names:
+        raise ValueError('stock filesystem needs the normal installed service without the QEMU probe')
+    release = json.loads(filesystem_tool('unsquashfs', image, '-cat', rootfs, 'etc/q2-os-release.json'))
+    if (release.get('qemu_fixture') is not False or release.get('private_configuration_imported') is not False
+            or release.get('release_tag') != version or release.get('app_source_commit') != source
+            or release.get('kernel_source_commit') != pins['linux']):
+        raise ValueError('stock filesystem release metadata differs from the selected sources')
+
+
+def pack_stock(args, pins, fmt):
+    image = args.image.resolve()
+    source = git(ROOT, 'rev-parse', 'HEAD')
+    if git(ROOT, 'status', '--porcelain'):
+        raise ValueError('use a clean player checkout at the paired application build commit')
+    manifest_path = image / 'artifact.json'
+    manifest = json.loads(manifest_path.read_text())
+    stock_image(image, manifest, pins, source, args.version)
+    report = write_package(args, image, manifest, fmt)
+    report.update(profile='stock-qualification-candidate', hardware_qualified=False,
+                  player_commit=source, components=pins, image_manifest_sha256=sha(manifest_path.read_bytes()),
+                  starting_version=args.installed_version)
+    with (args.out / 'result.json').open('x') as f:
+        json.dump(report, f, indent=2)
+        f.write('\n')
     print(json.dumps(report, indent=2))
 
 
@@ -104,11 +173,38 @@ def write_pages(nand, offset, capacity, data):
         nand.write(data[pos:pos + PAGE].ljust(STRIDE, b'\xff'))
 
 
-def boot(args, fmt):
+def boot_scope(args, pins):
+    receipt_path = getattr(args, 'pack_receipt', None)
+    if receipt_path is None:
+        return None, None
+    raw = receipt_path.read_bytes()
+    receipt = json.loads(raw)
+    if (receipt.get('profile') != 'stock-qualification-candidate'
+            or receipt.get('hardware_qualified') is not False or receipt.get('components') != pins):
+        raise ValueError('stock boot requires an unpublished pack receipt for the selected component lock')
+    return receipt, sha(raw)
+
+
+def installed_ready(log, stock):
+    if stock and b'Q2_SIM_PLAYER_READY' in log:
+        raise ValueError('unexpected emulator fixture marker in stock candidate')
+    return b'Q2_INSTALLED_ROOT_READY' in log and (stock or b'Q2_SIM_PLAYER_READY' in log)
+
+
+def boot(args, fmt, pins):
     # Always use bytes just read from the exact update archive.
-    blobs, report = fmt.read_package(args.package)
+    receipt, receipt_sha = boot_scope(args, pins)
+    stock = receipt is not None
+    blobs, report = fmt.read_package(args.package, receipt['update_tar_sha256'] if stock else None)
+    if stock and report['version'] != receipt['version']:
+        raise ValueError('stock pack receipt and update archive versions differ')
     args.out.mkdir(parents=True, exist_ok=False)
     work = args.out.resolve()
+    if stock:
+        with tempfile.TemporaryDirectory(dir=work) as tmp:
+            packed = Path(tmp)
+            (packed / 'rootfs.squashfs').write_bytes(blobs[fmt.ROOTFS])
+            stock_root(packed, pins, receipt['player_commit'], report['version'])
     (work / 'xImage').write_bytes(blobs[fmt.KERNEL])
     seed = work / 'userdata'
     seed.mkdir()
@@ -153,10 +249,10 @@ def boot(args, fmt):
                 log = console.read_bytes().splitlines()
                 if b'Q2_INSTALL_ROOT_FAILED' in log or any(b'Kernel panic' in l for l in log):
                     raise ValueError(f'kernel or installed root failed; see {console}')
-                if b'Q2_INSTALLED_ROOT_READY' in log and b'Q2_SIM_PLAYER_READY' in log:
+                if installed_ready(log, stock):
                     break
                 if proc.poll() is not None or time.monotonic() >= deadline:
-                    raise ValueError(f'emulator stopped or timed out before player readiness; see {console}')
+                    raise ValueError(f'emulator stopped or timed out before required readiness; see {console}')
                 time.sleep(1)
         finally:
             proc.terminate()
@@ -170,7 +266,11 @@ def boot(args, fmt):
                 subprocess.run(['podman', 'rm', '--force', '--ignore', cidfile.read_text().strip()],
                                check=True, stdout=subprocess.DEVNULL, timeout=25)
     result = {'update_tar_sha256': report['update_tar_sha256'], 'qemu_sha256': sha(binary.read_bytes()),
-              'installed_root_ready': True, 'player_ready': True, 'domain': 'direct kernel boot in QEMU'}
+              'installed_root_ready': True, 'player_ready': None if stock else True,
+              'domain': 'direct kernel boot in QEMU'}
+    if stock:
+        result.update(profile=receipt['profile'], hardware_qualified=False,
+                      pack_receipt_sha256=receipt_sha)
     (work/'result.json').write_text(json.dumps(result, indent=2)+'\n')
     print(json.dumps(result, indent=2))
 
@@ -178,18 +278,22 @@ def boot(args, fmt):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='operation', required=True)
-    package = sub.add_parser('pack')
-    package.add_argument('--image', type=Path, required=True)
-    package.add_argument('--version', required=True)
-    package.add_argument('--installed-version', required=True)
-    emulator = sub.add_parser('boot')
-    emulator.add_argument('--package', type=Path, required=True)
-    emulator.add_argument('--qemu', type=Path, required=True)
-    emulator.add_argument('--native-qemu', action='store_true',
-                          help='use a QEMU binary built for this host instead of its build container')
-    emulator.add_argument('--qemu-data', type=Path, help='optional native QEMU firmware/data directory')
-    emulator.add_argument('--timeout', type=int, default=420)
-    for command in (package, emulator):
+    for name in ('pack', 'pack-stock'):
+        package = sub.add_parser(name)
+        package.add_argument('--image', type=Path, required=True)
+        package.add_argument('--version', required=True)
+        package.add_argument('--installed-version', required=True)
+    for name in ('boot', 'boot-stock'):
+        emulator = sub.add_parser(name)
+        emulator.add_argument('--package', type=Path, required=True)
+        emulator.add_argument('--qemu', type=Path, required=True)
+        emulator.add_argument('--native-qemu', action='store_true',
+                              help='use a QEMU binary built for this host instead of its build container')
+        emulator.add_argument('--qemu-data', type=Path, help='optional native QEMU firmware/data directory')
+        emulator.add_argument('--timeout', type=int, default=420)
+        if name == 'boot-stock':
+            emulator.add_argument('--pack-receipt', type=Path, required=True)
+    for command in sub.choices.values():
         command.add_argument('--out', type=Path, required=True, help='fresh directory')
         command.add_argument('--component-lock', type=Path, default=PINS)
         command.add_argument('--os-repo', type=lambda x: Path(x).resolve(), required=True)
@@ -198,8 +302,10 @@ def main():
     fmt = os_package(args.os_repo, pins)
     if args.operation == 'pack':
         pack(args, pins, fmt)
+    elif args.operation == 'pack-stock':
+        pack_stock(args, pins, fmt)
     else:
-        boot(args, fmt)
+        boot(args, fmt, pins)
 
 
 if __name__ == '__main__':

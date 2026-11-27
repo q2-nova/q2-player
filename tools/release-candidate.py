@@ -166,34 +166,8 @@ def main():
 
 
 def check_stock(verifier, fmt, image, m, record, pins, source, package, package_sha):
-    if (m.get('qemu_fixture') is not False or m.get('emulator_shell') is not False
-            or m.get('diagnostic_ssh') != {'profile': 'disabled'}
-            or m.get('integration_hook_present') is not True
-            or m.get('app_source_commit') != source or m.get('kernel_source_commit') != pins['linux']
-            or m.get('tailscale_daemon') != 'rs' or m.get('tsrsd', {}).get('source_commit') != pins['tsrs']):
-        raise ValueError('stock draft needs the locked keyless production image with real services')
-    tool = verifier['filesystem_tool']
-    names = tool('unsquashfs', image, '-ls', 'rootfs.squashfs').decode().splitlines()
-    verifier['check_packed_keys']({name.removeprefix('squashfs-root/') for name in names})
-    with (image / 'rescue.cpio').open('rb') as archive:
-        listing = subprocess.check_output(['cpio', '-it', '--quiet'], stdin=archive).decode().splitlines()
-    verifier['check_packed_keys']({name.removeprefix('./') for name in listing})
-    release = json.loads(tool('unsquashfs', image, '-cat', 'rootfs.squashfs', 'etc/q2-os-release.json'))
-    if (release.get('qemu_fixture') is not False or release.get('private_configuration_imported') is not False
-            or release.get('release_tag') != record['version'] or release.get('app_source_commit') != source
-            or release.get('kernel_source_commit') != pins['linux']):
-        raise ValueError('stock filesystem release metadata differs from the selected sources')
-    for name, digest in [('usr/bin/q2nd', m['app_sha256']),
-                         ('usr/libexec/q2-network/q2-portal', m['portal_helper']['sha256']),
-                         ('usr/libexec/q2-network/tsrsd', m['tsrsd']['sha256'])]:
-        if verifier['sha'](tool('unsquashfs', image, '-cat', 'rootfs.squashfs', name)) != digest:
-            raise ValueError(f'stock executable differs from its installed OS manifest: {name}')
-    blobs, report = fmt.read_package(package, package_sha)
-    if report['version'] != record['version']:
-        raise ValueError('tested stock package has a different version')
-    for member, name in ((fmt.KERNEL, 'xImage'), (fmt.ROOTFS, 'rootfs.squashfs')):
-        if verifier['sha'](blobs[member]) != m['artifacts'][name]['sha256']:
-            raise ValueError(f'stock package readback differs: {name}')
+    verifier['stock_image'](image, m, pins, source, record['version'])
+    verifier['check_package'](package, package_sha, record['version'], m, fmt)
 
 
 if __name__ == '__main__':

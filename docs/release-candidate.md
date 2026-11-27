@@ -55,3 +55,36 @@ Both release workflows attach `player-source.tar.gz` and include it in
 `SHA256SUMS`. The source bundle records the exact firmware digest and player
 revision. It includes the static libopenaptx notice, license and
 [rebuild instructions](relink.md).
+
+### Prepare the archive for physical qualification
+
+Use the tagged OS checkout and the resolved component lock from the admitted
+release assets. Compose the keyless normal installed image with the tagged OS
+stock composer and the paired player, portal, and daemon. The stock packer
+checks the normal service hook, release metadata, executable hashes, and
+keyless root and rescue contents before using the stock update format.
+
+```sh
+python3 "$OS/os/compose_stock.py" prepare --assets "$INPUTS/q2-os-assets" \
+  --output "$OS/build/stock-inputs"
+python3 "$OS/os/compose_stock.py" image --assets "$INPUTS/q2-os-assets" \
+  --stock-inputs "$OS/build/stock-inputs" --player-source "$PWD" \
+  --app "$PWD/build/paired-player/q2nd" --tsrsd "$INPUTS/tsrs" \
+  --tsrs-source "$INPUTS/tsrs-source" --release-tag "$CANDIDATE_VERSION" \
+  --qemu-user "$INPUTS/qemu/bin/qemu-mipsel" --output "$STOCK_IMAGE"
+python3 tools/verify-package.py pack-stock --os-repo "$OS" \
+  --component-lock "$INPUTS/component-lock.json" --image "$STOCK_IMAGE" \
+  --version "$CANDIDATE_VERSION" --installed-version "$STARTING_VERSION" \
+  --out build/stock-package
+python3 tools/verify-package.py boot-stock --os-repo "$OS" \
+  --component-lock "$INPUTS/component-lock.json" \
+  --package build/stock-package/update.tar --pack-receipt build/stock-package/result.json \
+  --qemu "$INPUTS/qemu/bin/qemu-system-mipsel" --qemu-data "$INPUTS/qemu/share/qemu" \
+  --native-qemu --out build/stock-root-smoke
+```
+
+The direct-kernel smoke reads the exact archive and checks normal installed
+root readiness with disposable guest storage. The normal image has no
+simulator player probe, so the result leaves player readiness unset. Keep
+the exact `update.tar` for the physical stock installation, local playback
+and recovery checks. Only those checks qualify it for the stock draft gate.
