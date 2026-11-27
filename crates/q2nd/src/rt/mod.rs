@@ -1,4 +1,4 @@
-//! The async runtimes (docs/async-conversion.md, "Target threads").
+//! The async runtimes (docs/architecture.md, "Execution").
 //!
 //! Two current-thread tokio runtimes: [`io`] on its own thread for sockets,
 //! pipes, child processes and timers, and [`Ui`] for the main thread (the UI
@@ -10,7 +10,7 @@
 //! runtime thread once per expiry (crates/vendor/tokio/README.q2.md), which
 //! the tests below count.
 //!
-//! Rules for async modules (checked by `tools/async_gates.py`): spawn tasks
+//! Rules for async modules (docs/architecture.md, "Runtime rules"): spawn tasks
 //! with [`Runtime::spawn`] so the stall detector sees them, never hold a
 //! `std` lock across an `.await`, and reach blocking work only through a
 //! `&Blocking`.
@@ -26,7 +26,7 @@ pub use blocking::Blocking;
 #[allow(unused_imports)]
 pub use blocking::on_executor;
 pub use blocking::may_wait_for_tasks;
-#[allow(unused_imports)] // Also used by generated synchronous-boundary controls.
+#[allow(unused_imports)]
 pub use blocking::on_pool;
 #[allow(unused_imports)]
 pub(crate) use fd::{CloseFile, Fd, ReactorFile};

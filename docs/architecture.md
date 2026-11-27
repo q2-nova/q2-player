@@ -26,6 +26,39 @@ continues on the UI thread after evdev readiness delivers events. The
 storage, radio doze, sleep and USB. The platform and service owners apply
 their effects.
 
+### Runtime rules
+
+- Spawn tasks with `rt::Runtime::spawn`. It times every poll, so the stall
+  detector ([`rt/stall.rs`](../crates/q2nd/src/rt/stall.rs)) logs a task
+  that holds its executor for 50 ms or more.
+- Use `tokio::time` for timers. The workspace patches tokio to the copy in
+  [`crates/vendor/tokio`](../crates/vendor/tokio/README.q2.md), which wakes
+  the runtime thread once per timer expiry.
+- Do blocking work (card, process and device I/O, sleeps, waits) only in
+  functions that take `&rt::Blocking`. Only `rt::spawn_blocking` (a pool
+  thread) and `Blocking::dedicated_thread` (the start of a thread that
+  exists to block) hand out a witness.
+- Do not hold a `std` lock or a `RefCell` borrow across an `.await`.
+- Do not use `AtomicU64` or `AtomicI64`. The Q2 target has 32-bit atomics
+  only.
+
+The [lint workflow](../.github/workflows/lint.yml) checks the rules it can.
+Clippy runs with every lint group allowed, so only the lints the source
+denies fail it: `await_holding_lock` and `await_holding_refcell_ref` in the
+whole of `q2nd`, and the `clippy.toml` lists of blocking methods and socket
+types in `rt` and `net`. A grep rejects 64-bit atomics outside
+`crates/vendor`.
+
+The [witness tests](../tests/rt/test_blocking_witness.py) compile
+`rt/blocking.rs` alone. They guarantee that a `Blocking` cannot be built
+outside `rt`, forged from its fields, returned from a pool job or shared
+with another thread, and that construction panics on a thread marked as an
+executor, in release builds too. They do not show that a function that
+blocks takes `&Blocking`: a blocking call compiles without one, and clippy
+catches only the listed methods and types in `rt` and `net`. They also do
+not stop code from keeping a witness while it enters a local executor. The
+stall detector reports blocking on an executor at run time.
+
 ## Library and offline listening
 
 The [library](../crates/q2nd/src/library/) owns the card database, server

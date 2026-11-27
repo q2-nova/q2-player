@@ -1,6 +1,6 @@
 //! q2nd: a Navidrome player for the Shanling Q2 on the mainline image.
 // A std lock held across an await blocks the runtime's other tasks
-// (tools/async_gates.py clippy).
+// (.github/workflows/lint.yml runs clippy).
 #![deny(clippy::await_holding_lock, clippy::await_holding_refcell_ref)]
 // MSA intrinsics (core::arch::mips) and #[target_feature(enable = "msa")]
 // on the Q2's nightly only; every MSA routine keeps a portable fallback
@@ -265,7 +265,7 @@ fn args() -> Args {
                      Headless scripts: one step a line: `scroll N`, `center`, `back`, `play`,\n\
                      `hold center|back|play`, `wait MS`, `await MS [screen:|overlay:]TITLE`, `present MS`, `shot FILE.png`,\n\
                      `record-text`, `text NAME`, `await-play MS STATE [ADVANCE_MS]`, `fault-descriptor`\n\
-                     (fault journeys: tests/perf/ux_faults.py)."
+                     (fault journeys: tests/ui/ux_faults.py)."
                 );
                 std::process::exit(0);
             }

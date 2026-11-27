@@ -1,0 +1,104 @@
+name: UX journeys
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/ux.yml'
+      - 'Cargo.*'
+      - 'rust-toolchain.toml'
+      - 'crates/**'
+      - 'tests/ui/**'
+      - 'tests/perf/test_diagnostic_receiver.py'
+      - 'tools/diagnostic_receiver.py'
+
+permissions:
+  contents: read
+
+jobs:
+  controls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Fault fixture, screen text and device transport controls
+        working-directory: tests/ui
+        run: python3 -m unittest -v test_ux_faults test_ux_device_capture
+      - name: Diagnostic receiver controls
+        run: python3 -m unittest -v tests/perf/test_diagnostic_receiver.py
+
+  journeys:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install FFmpeg and Pillow
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg python3-pil
+      - name: Allow unprivileged user namespaces
+        # The card-full journey mounts a size-limited tmpfs with unshare -rm.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Build the headless player
+        env:
+          CARGO_BUILD_JOBS: '2'
+        run: cargo build --locked -p q2nd
+      - name: Fault-injection journeys
+        run: python3 tests/ui/ux_faults.py --jobs 2 --out build/ux-faults/ci
+      - name: Sleep-timer UI replay
+        run: python3 tests/ui/sleep-timer-ui.py --binary target/debug/q2nd --out build/sleep-timer/ci
+      - name: Reject executor stalls
+        if: always()
+        run: |
+          # rt/stall.rs logs every new longest poll of 50 ms or more. A
+          # debug build on a shared runner can reach that without blocking;
+          # 250 ms is a blocked executor.
+          python3 - <<'PYTHON'
+          import pathlib, re, sys
+
+          pattern = re.compile(r'runtime (\w+): a task held the executor for (\d+) ms at (\S+)')
+          stalls = []
+          for log in sorted([*pathlib.Path('build/ux-faults/ci').glob('*/player.log'), pathlib.Path('build/sleep-timer/ci/generated-ui.log')]):
+              if not log.exists():
+                  continue
+              for match in pattern.finditer(log.read_text(errors='replace')):
+                  stalls.append((int(match[2]), log.parent.name, match[1], match[3]))
+          for ms, journey, runtime, site in sorted(stalls, reverse=True):
+              level = 'error' if ms >= 250 else 'warning'
+              print(f'::{level}::{journey}: {runtime} runtime held for {ms} ms at {site}')
+          sys.exit(1 if any(ms >= 250 for ms, *_ in stalls) else 0)
+          PYTHON
+      - name: Summarize journeys
+        if: always()
+        run: |
+          python3 - <<'PYTHON' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+
+          path = pathlib.Path('build/ux-faults/ci/summary.json')
+          if not path.exists():
+              raise SystemExit
+          summary = json.loads(path.read_text())
+          print('## UX fault journeys')
+          print()
+          print('| Journey | Result | Failures |')
+          print('| --- | --- | --- |')
+          for journey in summary['journeys']:
+              failures = '; '.join(journey['failures'] or [])
+              print(f"| {journey['journey']} | {'pass' if journey['passed'] else 'FAIL'} | {failures} |")
+          PYTHON
+      - name: Show failed journey logs
+        if: failure()
+        run: |
+          for result in build/ux-faults/ci/*/result.json; do
+            if jq -e '.passed | not' "$result" > /dev/null; then
+              dir=$(dirname "$result")
+              echo "::group::$(basename "$dir")"
+              jq '{failures, measured, ux_codes, messages}' "$result"
+              tail -n 60 "$dir/player.log"
+              echo '::endgroup::'
+            fi
+          done

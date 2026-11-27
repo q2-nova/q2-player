@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "requirement": "UX-008: measure, then ratchet each target lower as gains land.",
+  "quantile": 0.9,
+  "min_samples": 5,
+  "headroom": 1.2,
+  "metrics": {
+    "input-to-present": {"what": "screen-off tap to displayed frame, in active use (UXI-015)", "target_ms": 100, "history": []},
+    "resume-return-to-present": {"what": "tap to displayed frame from sleep (UXI-015)", "target_ms": 3000, "history": []},
+    "shuffle-to-audio": {"what": "Shuffle Songs press to first accepted PCM (UX-004)", "target_ms": 50, "history": []},
+    "music-play-to-audio": {"what": "music Play to first accepted PCM (cached ≤ 50 ms, streamed ≤ 1 s)", "target_ms": 1000, "history": []},
+    "spoken-play-to-audio": {"what": "book/episode Play to first accepted PCM", "target_ms": 1000, "history": []},
+    "resume-to-audio": {"what": "Resume after pause to first accepted PCM", "target_ms": 100, "history": []},
+    "skip-to-audio": {"what": "Next/Previous to first accepted PCM", "target_ms": 300, "history": []},
+    "page-open": {"what": "opening a page to rows shown", "target_ms": 100, "history": []},
+    "info-open": {"what": "opening book/episode info to text shown", "target_ms": 100, "history": []}
+  }
+}

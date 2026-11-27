@@ -1,0 +1,44 @@
+name: Player lint
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/lint.yml'
+      - 'Cargo.*'
+      - 'clippy.toml'
+      - 'rust-toolchain.toml'
+      - 'crates/**'
+      - 'tests/rt/**'
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install the repository toolchain
+        run: rustup toolchain install
+      - name: Reject 64-bit atomics in crates built for the Q2
+        run: |
+          # The Q2 target has 32-bit atomics only (max-atomic-width = 32).
+          if git grep -nwE 'Atomic(U64|I64)' -- crates ':!crates/vendor' ':!crates/wasm-demo'; then
+            echo '::error::AtomicU64 and AtomicI64 do not exist on the Q2 target; use a 32-bit atomic or a Mutex.'
+            exit 1
+          fi
+      - name: Blocking witness tests
+        run: python3 -m unittest discover -s tests/rt -v
+      - name: Clippy (source denies only)
+        env:
+          CARGO_BUILD_JOBS: '2'
+        run: |
+          # Every lint group is allowed here; the crate and module
+          # #![deny(...)] attributes override these flags, so only
+          # await_holding_lock, await_holding_refcell_ref and the clippy.toml
+          # lists in rt and net can fail the job.
+          cargo clippy --locked -p q2nd -- -A clippy::all -A clippy::pedantic -A clippy::nursery -A clippy::restriction

@@ -6,7 +6,7 @@
 //! that exists to block). Construction rejects marked executors and the
 //! token cannot cross threads. It does not prevent retaining a token while
 //! entering a local executor: reviewed owner/caller boundaries and runtime
-//! guards supply that separate protection. `tools/test_async_gates.py`
+//! guards supply that separate protection. `tests/rt/test_blocking_witness.py`
 //! checks construction and thread-transfer failures.
 //!
 //! This file depends on `std` only.
@@ -81,9 +81,8 @@ impl Blocking {
     }
 
     /// For the first lines of a dedicated blocking thread (the player, the
-    /// database owner). `tools/async_inventory.py --coverage` fails for a
-    /// call outside the functions listed in `docs/async/blocking-allow.toml`.
-    #[allow(dead_code)] // Also compiled alone by the witness negative controls.
+    /// database owner).
+    #[allow(dead_code)] // Also compiled alone by tests/rt/test_blocking_witness.py.
     pub(crate) fn dedicated_thread() -> Blocking {
         Blocking::new()
     }

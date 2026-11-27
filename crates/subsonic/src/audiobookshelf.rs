@@ -56,8 +56,7 @@ impl Request {
     }
 }
 
-/// A URL query parameter (an explicit `http::Request` receiver, so the
-/// async inventory sees a value call, not a database query).
+/// A URL query parameter.
 fn with_query(request: crate::http::Request, name: &str, value: &str) -> crate::http::Request {
     request.query(name, value)
 }
