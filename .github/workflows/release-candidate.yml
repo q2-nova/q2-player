@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/release-candidate.yml'
       - 'tools/release-candidate.py'
+      - 'tools/release-source.py'
       - 'tools/verify-package.py'
       - 'tests/release/**'
   workflow_dispatch:
@@ -36,6 +37,7 @@ jobs:
       contents: read
     outputs:
       result_sha256: ${{ steps.compose.outputs.result_sha256 }}
+      source_sha256: ${{ steps.compose.outputs.source_sha256 }}
       player_commit: ${{ steps.pin.outputs.player_commit }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -79,6 +81,9 @@ jobs:
           python3 tools/release-candidate.py --mode stock-draft --bundle build/release-inputs \
             --player-commit "$PLAYER_SOURCE" --manifest-sha256 "$manifest_sha" \
             --os-repo build/release-os --out build/release-candidate
+          source_sha=$(python3 tools/release-source.py --package build/release-candidate/verified/update.tar \
+            --record build/release-candidate/result.json --out build/release-candidate/verified/player-source.tar.gz)
+          printf 'source_sha256=%s\n' "$source_sha" >> "$GITHUB_OUTPUT"
           printf 'result_sha256=%s\n' "$(sha256sum build/release-candidate/result.json | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
       - name: Transfer verified stock payload to the draft job
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -88,6 +93,7 @@ jobs:
           path: |
             build/release-candidate/result.json
             build/release-candidate/verified/update.tar
+            build/release-candidate/verified/player-source.tar.gz
 
   draft:
     concurrency: q2-stock-draft
@@ -102,6 +108,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RESULT_SHA256: ${{ needs.compose.outputs.result_sha256 }}
+          SOURCE_SHA256: ${{ needs.compose.outputs.source_sha256 }}
           PLAYER_SOURCE: ${{ needs.compose.outputs.player_commit }}
         run: |
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
@@ -121,6 +128,10 @@ jobs:
           ')
           [[ "$source" == "$PLAYER_SOURCE" ]]
           printf '%s  verified/update.tar\n' "$package_sha" | sha256sum --check --strict
+          [[ "$SOURCE_SHA256" =~ ^[a-f0-9]{64}$ ]]
+          printf '%s  verified/player-source.tar.gz\n' "$SOURCE_SHA256" | sha256sum --check --strict
+          printf '%s  update.tar\n%s  result.json\n%s  player-source.tar.gz\n' \
+            "$package_sha" "$RESULT_SHA256" "$SOURCE_SHA256" > SHA256SUMS
           if gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "A release or draft already exists for $version" >&2
             exit 1
@@ -129,6 +140,6 @@ jobs:
             echo "A Git tag already exists for $version" >&2
             exit 1
           fi
-          printf 'Stock Q2 candidate qualified on a physical device.\n\nPackage SHA-256: %s\n' "$package_sha" > draft-notes.txt
-          gh release create "$version" verified/update.tar result.json \
+          printf 'Stock Q2 candidate qualified on a physical device.\n\nPackage SHA-256: %s\n\nSee player-source.tar.gz for the LGPL libopenaptx notices, source and relink procedure.\n' "$package_sha" > draft-notes.txt
+          gh release create "$version" verified/update.tar result.json verified/player-source.tar.gz SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --draft --target "$source" --title "Shanling Q2 $version" --notes-file draft-notes.txt

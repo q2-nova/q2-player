@@ -43,10 +43,9 @@ to GPLv3+". 0.2.1 was fetched and read for this check only (archive sha256
 `a19b3b642def6f86441b73dd4efda6e6f13d49e7e2d6e5e91cc7eb464ebb505a`); nothing
 from it is in this crate. Do not update past 0.2.0.
 
-The C is linked statically into the player binary. LGPL-2.1 section 6 then
-applies to the distributed binary: the recipient must be able to relink it
-against a modified libopenaptx. The player's source is available, which
-satisfies that if the release ships or offers the source.
+The C is linked statically into the player. Binary releases accompany the
+library’s source and LGPL license with the exact player source and a
+[documented relink procedure](../../../docs/relink.md).
 
 ## Patents
 

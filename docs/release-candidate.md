@@ -12,7 +12,7 @@ candidate**. It builds the paired player and portal, composes a keyless
 installed OS fixture with the tagged OS builder and prebuilt kernel, packs the firmware archive and
 reads it back before booting those exact bytes under QEMU. The paired artifact
 remains in Actions for reuse. The prerelease contains
-`update.tar` labelled QEMU emulator rehearsal only, its boot result and their checksums. Keep this
+`update.tar` labelled QEMU emulator rehearsal only, its boot result, corresponding player source and their checksums. Keep this
 emulator rehearsal off physical devices. Manual dispatch runs the generated
 admission controls without producing release assets.
 
@@ -50,3 +50,8 @@ stock qualification covers the identical archive. It copies those bytes into a
 draft only after the checks pass. The stock draft retains the package and its
 verification summary. An existing tag or release at that version is left in
 place. Publication is a separate maintainer action.
+
+Both release workflows attach `player-source.tar.gz` and include it in
+`SHA256SUMS`. The source bundle records the exact firmware digest and player
+revision. It includes the static libopenaptx notice, license and
+[rebuild instructions](relink.md).

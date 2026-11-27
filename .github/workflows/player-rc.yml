@@ -26,6 +26,7 @@ jobs:
     outputs:
       package_sha256: ${{ steps.package.outputs.package_sha256 }}
       result_sha256: ${{ steps.package.outputs.result_sha256 }}
+      source_sha256: ${{ steps.package.outputs.source_sha256 }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
@@ -96,8 +97,11 @@ jobs:
           jq -e --arg sha "$package_sha" '.update_tar_sha256 == $sha and .installed_root_ready and .player_ready' build/rc-boot/result.json
           jq -s '.[0] + {player_commit: env.GITHUB_SHA, player_tag: env.GITHUB_REF_NAME, components: .[1], release_inputs: .[2]}' \
             build/rc-boot/result.json "$inputs/component-lock.json" "$inputs/producer-inputs.json" > build/rc-release/result.json
-          printf 'package_sha256=%s\nresult_sha256=%s\n' "$package_sha" \
-            "$(sha256sum build/rc-release/result.json | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+          source_sha=$(python3 tools/release-source.py --package build/rc-release/update.tar \
+            --record build/rc-release/result.json --producer-inputs "$inputs/producer-inputs.json" \
+            --out build/rc-release/player-source.tar.gz)
+          printf 'package_sha256=%s\nresult_sha256=%s\nsource_sha256=%s\n' "$package_sha" \
+            "$(sha256sum build/rc-release/result.json | cut -d ' ' -f1)" "$source_sha" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: q2-player-emulator-rc
@@ -119,16 +123,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PACKAGE_SHA: ${{ needs.build.outputs.package_sha256 }}
           RESULT_SHA: ${{ needs.build.outputs.result_sha256 }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha256 }}
         run: |
           [[ "$PACKAGE_SHA" =~ ^[a-f0-9]{64}$ && "$RESULT_SHA" =~ ^[a-f0-9]{64}$ ]]
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --name q2-player-emulator-rc --dir candidate
           cd candidate
-          printf '%s  update.tar\n%s  result.json\n' "$PACKAGE_SHA" "$RESULT_SHA" > SHA256SUMS
+          printf '%s  update.tar\n%s  result.json\n%s  player-source.tar.gz\n' \
+            "$PACKAGE_SHA" "$RESULT_SHA" "$SOURCE_SHA" > SHA256SUMS
           sha256sum --check --strict SHA256SUMS
           jq -e --arg tag "$GITHUB_REF_NAME" --arg sha "$GITHUB_SHA" \
             --arg package "$PACKAGE_SHA" '.player_tag == $tag and .player_commit == $sha and .update_tar_sha256 == $package and .installed_root_ready and .player_ready' result.json
-          gh release create "$GITHUB_REF_NAME" 'update.tar#QEMU emulator rehearsal only' result.json SHA256SUMS \
+          gh release create "$GITHUB_REF_NAME" 'update.tar#QEMU emulator rehearsal only' result.json player-source.tar.gz SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false \
             --title "Q2 emulator rehearsal $GITHUB_REF_NAME" \
-            --notes 'Emulator rehearsal only. Keep this package off physical devices.'
+            --notes 'Emulator rehearsal only. Keep this package off physical devices. player-source.tar.gz includes the LGPL libopenaptx notices, source and relink procedure.'

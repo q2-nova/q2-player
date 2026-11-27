@@ -51,3 +51,6 @@ Original Q2 player code is available under the GNU General Public License,
 version 3 or (at your option) any later version (`GPL-3.0-or-later`). See
 [COPYING](COPYING). The codec packages, vendored libraries, fonts, datasets
 and other third-party material carry their own licenses and notices.
+
+Binary releases include libopenaptx source, notices and the LGPL license.
+[How to rebuild with a modified libopenaptx](docs/relink.md)
