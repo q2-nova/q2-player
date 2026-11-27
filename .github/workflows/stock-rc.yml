@@ -75,4 +75,5 @@ jobs:
           remote_tag=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME" --jq .object.sha)
           [[ "$remote_tag" == "$STOCK_TAG_OBJECT" ]]
           python3 tools/stock-draft.py --directory build/stock-rc-release \
+            --metadata stock-release.json --os-repo build/stock-rc-inputs/q2-os \
             --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --commit "$STOCK_PLAYER_COMMIT"

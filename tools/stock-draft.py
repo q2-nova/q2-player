@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 TAG = r'stock-v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*'
-PAYLOADS = ('stock-qualification-update.tar', 'result.json', 'player-source.tar.gz')
+PAYLOADS = ('update.tar', 'result.json', 'player-source.tar.gz')
 
 
 def digest(path):
@@ -18,7 +18,22 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def admit(directory, tag, commit):
+def metadata(path):
+    record = json.loads(path.read_text())
+    version, starting = (record[key] for key in ('version', 'starting_version'))
+    if (not all(isinstance(v, str) and re.fullmatch(r'V[A-Za-z0-9.]{4}', v)
+                for v in (version, starting)) or version == starting):
+        raise ValueError('stock trial needs different five-character candidate and starting versions')
+    return version, starting
+
+
+def read_archive(os_repo, package, sha):
+    return json.loads(subprocess.check_output([
+        'python3', os_repo / 'os/hardware/package.py', 'check', package, '--sha256', sha,
+    ]))
+
+
+def admit(directory, tag, commit, trial, os_repo):
     if not re.fullmatch(TAG, tag) or not re.fullmatch(r'[0-9a-f]{40}', commit):
         raise ValueError('invalid stock tag or player commit')
     sums = directory / 'SHA256SUMS'
@@ -26,22 +41,31 @@ def admit(directory, tag, commit):
     if sums.read_text() != expected:
         raise ValueError('stock assets differ from SHA256SUMS')
     report = json.loads((directory / 'result.json').read_text())
+    version, starting = trial
+    package_sha = expected.split()[0]
+    packed = report['stock_pack']
     if (report['player_tag'] != tag or report['player_commit'] != commit
             or report['profile'] != 'stock-qualification-candidate'
-            or report['version'] != 'V0.02'
-            or report['update_tar_sha256'] != expected.split()[0]
+            or report['version'] != version or report['starting_version'] != starting
+            or packed['version'] != version or packed['starting_version'] != starting
+            or packed['update_tar_sha256'] != package_sha
+            or report['update_tar_sha256'] != package_sha
             or report['installed_root_ready'] is not True
             or report['player_ready'] is not None
             or report['hardware_qualified'] is not False):
         raise ValueError('stock draft requires the matching booted, unqualified archive')
+    if read_archive(os_repo, directory / 'update.tar', package_sha)['version'] != version:
+        raise ValueError('stock trial version differs from the archived updater manifest')
 
 
 def api(endpoint, *args):
     return json.loads(subprocess.check_output(['gh', 'api', endpoint, *args]))
 
 
-def stage(directory, repository, tag, commit):
-    admit(directory, tag, commit)
+def stage(directory, repository, tag, commit, metadata_path, os_repo):
+    trial = metadata(metadata_path)
+    admit(directory, tag, commit, trial, os_repo)
+    version, starting = trial
     endpoint = f'repos/{repository}/releases'
     existing = api(endpoint, '--paginate', '--slurp')
     if any(row['tag_name'] == tag for page in existing for row in page):
@@ -51,7 +75,8 @@ def stage(directory, repository, tag, commit):
                 '-F', 'prerelease=true', '-f', 'make_latest=false',
                 '-f', f'name=Q2 physical qualification {tag}',
                 '-f', 'body=Maintainer-only physical qualification. Keep this draft private. '
-                      'The package has passed the QEMU installed-root check only.')
+                      f'Candidate firmware: {version}. Provisional starting firmware: {starting}. '
+                      'Physical trial pending. Passed the QEMU installed-root check only.')
     release_id = int(draft['id'])
     if draft['draft'] is not True or draft['prerelease'] is not True or draft['tag_name'] != tag:
         raise ValueError('GitHub did not create the requested stock draft')
@@ -73,8 +98,10 @@ def main():
     parser.add_argument('--repository', required=True)
     parser.add_argument('--tag', required=True)
     parser.add_argument('--commit', required=True)
+    parser.add_argument('--metadata', required=True, type=Path)
+    parser.add_argument('--os-repo', required=True, type=Path)
     args = parser.parse_args()
-    stage(args.directory, args.repository, args.tag, args.commit)
+    stage(args.directory, args.repository, args.tag, args.commit, args.metadata, args.os_repo)
 
 
 if __name__ == '__main__':

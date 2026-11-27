@@ -100,8 +100,10 @@ and recovery checks. Only those checks qualify it for the stock draft gate.
 A signed annotated `stock-vX.Y.Z-rc.N` tag on a verified `main` commit can
 run the stock qualification workflow once the flat release lock selects a
 published stock-capable OS version. The workflow builds one paired app and
-portal and uses stock firmware version `V0.02`. It attaches
-`stock-qualification-update.tar`, its boot and package evidence, corresponding
+portal. The provisional physical trial versions live in
+`stock-release.json`. The selected candidate is `V0.02`, with factory
+`V1.32` as the intended starting version. The trial is pending.
+The workflow attaches `update.tar`, its boot and package evidence, corresponding
 player source, and `SHA256SUMS` directly to a newly created GitHub draft.
 Keep that draft private during physical qualification. The workflow refuses
 to reuse an existing draft, including after an interrupted upload.
