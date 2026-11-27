@@ -17,6 +17,7 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -m unittest discover -s tests/release -p 'test_*.py' -v
+      - run: python3 -m unittest tests/perf/test_pgo.py -v
 
   build:
     if: github.event_name == 'push' && github.ref_type == 'tag'
@@ -54,20 +55,39 @@ jobs:
             [[ "$name" =~ ^[a-z0-9][a-z0-9+.-]*(:amd64)?$ ]]
           done
           sudo apt-get update
-          sudo apt-get install -y cpio squashfs-tools podman "${runtime[@]}"
-      - name: Fetch locked Cargo sources and build the paired target
+          sudo apt-get install -y cpio squashfs-tools podman ffmpeg "${runtime[@]}"
+      - name: Fetch locked Cargo sources
         run: |
           nightly=$(jq -er .rust_toolchain build/rc-inputs/q2-os/os/sources.json)
           rustup toolchain install "$nightly" --profile minimal --component rust-src
           cargo "+$nightly" fetch --locked
           std_manifest="$PWD/build/rc-inputs/compiler/install/lib/rustlib/src/rust/library/Cargo.toml"
           cargo "+$nightly" fetch --locked --manifest-path "$std_manifest"
+      - name: Profile q2nd in the emulator
+        run: |
+          python3 tools/pgo.py profile --component-lock build/rc-inputs/component-lock.json \
+            --sdk build/rc-inputs/sdk/mipsel-buildroot-linux-gnu_sdk-buildroot \
+            --toolchain-repo build/rc-inputs/q2-toolchain --compiler-work build/rc-inputs/compiler \
+            --os-repo build/rc-inputs/q2-os --qemu-user build/rc-inputs/qemu/bin/qemu-mipsel --out build/pgo
+          jq '{profile_sha256, training_version, minutes, coverage: .coverage.total, hot_paths_missing: .coverage.hot_paths_missing}' \
+            build/pgo/receipt.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Build the paired target with the profile
+        run: |
           python3 tools/build-target.py --component-lock build/rc-inputs/component-lock.json \
             --sdk build/rc-inputs/sdk/mipsel-buildroot-linux-gnu_sdk-buildroot \
             --toolchain-repo build/rc-inputs/q2-toolchain --compiler-work build/rc-inputs/compiler \
             --os-repo build/rc-inputs/q2-os --producer-inputs build/rc-inputs/producer-inputs.json \
-            --out build/paired-player
+            --profile-use build/pgo/q2nd.profdata --out build/paired-player
           jq -e '.profile == "release" and .release_eligible == true and .features.q2nd == []' build/paired-player/result.json
+          python3 tools/release-candidate.py check-profile --build-result build/paired-player/result.json --source "$GITHUB_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: q2nd-profile
+          path: |
+            build/pgo/q2nd.profdata
+            build/pgo/receipt.json
+            build/pgo/coverage.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: q2-paired-player
@@ -97,8 +117,11 @@ jobs:
           cp build/rc-package/update.tar build/rc-release/update.tar
           package_sha=$(sha256sum build/rc-release/update.tar | cut -d ' ' -f1)
           jq -e --arg sha "$package_sha" '.update_tar_sha256 == $sha and .installed_root_ready and .player_ready' build/rc-boot/result.json
-          jq -s '.[0] + {player_commit: env.GITHUB_SHA, player_tag: env.GITHUB_REF_NAME, components: .[1], release_inputs: .[2]}' \
-            build/rc-boot/result.json "$inputs/component-lock.json" "$inputs/producer-inputs.json" > build/rc-release/result.json
+          jq -s '.[0] + {player_commit: env.GITHUB_SHA, player_tag: env.GITHUB_REF_NAME, components: .[1], release_inputs: .[2],
+                 pgo: {q2nd: .[3].pgo.receipt, tsrsd: .[4].pgo.receipt}}' \
+            build/rc-boot/result.json "$inputs/component-lock.json" "$inputs/producer-inputs.json" \
+            build/paired-player/result.json "$inputs/tsrs/result.json" > build/rc-release/result.json
+          jq -e --arg sha "$GITHUB_SHA" '.pgo.q2nd.source_commit == $sha' build/rc-release/result.json
           source_sha=$(python3 tools/release-source.py --package build/rc-release/update.tar \
             --record build/rc-release/result.json --producer-inputs "$inputs/producer-inputs.json" \
             --out build/rc-release/player-source.tar.gz)

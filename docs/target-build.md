@@ -26,15 +26,54 @@ archives it with `result.json` as `q2nd-symbols.tar.gz`, the release asset
 described in [release candidates](release-candidate.md). Each executable also has a size
 report. Use a fresh output directory for each build.
 
-The command above builds development artifacts. A release planner can supply
-`--profile-use` with a profile collected from the matching player workload.
-The result records the SHA-256 of each supplied optional input.
+The command above builds development artifacts. The result records the
+SHA-256 of each supplied optional input.
 
 `result.json` also records the build's `profile`, `release_eligible`, the
 Cargo `features` of each package and `feature_set_sha256`, their digest. A
 release build has `profile` `release` and enables no optional q2nd feature.
-A `--profile-use` profile must come from an instrumented build with the same
-feature set as the release build that uses it.
+
+## Profile-guided release build
+
+Every release build of q2nd is profile-guided. `tools/pgo.py profile` takes
+the same inputs and the QEMU MIPS user-mode emulator. It builds an
+instrumented q2nd with `build-target.py --profile-generate` and the release
+feature set, trains it under `qemu-mipsel` and writes `q2nd.profdata`,
+`receipt.json` and `coverage.json`. The release build then uses the profile:
+
+```sh
+python3 tools/pgo.py profile --sdk RELOCATED_SDK \
+  --toolchain-repo Q2_TOOLCHAIN_CHECKOUT --compiler-work X2000_COMPILER_WORK \
+  --os-repo Q2_OS_CHECKOUT --qemu-user QEMU_MIPSEL --out build/pgo
+python3 tools/build-target.py --sdk RELOCATED_SDK \
+  --toolchain-repo Q2_TOOLCHAIN_CHECKOUT --compiler-work X2000_COMPILER_WORK \
+  --os-repo Q2_OS_CHECKOUT --profile-use build/pgo/q2nd.profdata \
+  --out build/target-player
+```
+
+The compiler supplies the profile runtime, `llvm-profdata` and the shared
+driver `tools/q2_pgo.py` of q2-toolchain. Training version 2 uses the
+generated fixtures of `tests/perf/fixtures.py` (FFmpeg): `q2nd --bench`
+decodes of each codec, JPEG, PNG and WebP covers at 50, 150 and 320 px, EQ,
+240 UI frames, storage charts, config start-up, and three headless tours on
+a seeded card. There is no network training yet: the player has no
+generated Navidrome, Audiobookshelf, radio, sync, scrobble or portal
+fixtures for `qemu-mipsel`, so the receipt lists the network read path as a
+known gap.
+
+The receipt records the profile's SHA-256, the training version, the
+compiler identity, the feature set, the coverage summary (functions and
+regions with counts per crate and named hot paths) and the training
+minutes. `build-target.py --profile-use` refuses a profile whose receipt
+names another feature set or compiler, and records the receipt under `pgo`
+in `result.json`. `tools/release-candidate.py check-profile` also requires
+the receipt's source commit to be the release source.
+
+`tools/pgo.py compare --plain BUILD --pgo BUILD` runs the codec, image, EQ,
+UI and chart cases on a build without a profile and a profile-guided build
+of the same source under `qemu-mipsel`, and requires equal decoded samples,
+pixels and UI checksums. `tests/perf/test_pgo.py` runs it when
+`Q2_PGO_PLAIN_BUILD`, `Q2_PGO_BUILD`, `Q2_SDK` and `Q2_QEMU_USER` are set.
 
 ## Emulator diagnostic build
 

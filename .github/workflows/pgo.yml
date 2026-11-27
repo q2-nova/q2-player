@@ -1,0 +1,39 @@
+name: PGO controls
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pgo.yml'
+      - '.github/workflows/player-rc.yml'
+      - '.github/workflows/stock-rc.yml'
+      - 'tools/pgo.py'
+      - 'tools/build-target.py'
+      - 'tools/release-candidate.py'
+      - 'tests/perf/**'
+      - 'crates/q2nd/src/script.rs'
+      - 'crates/q2nd/src/library/db.rs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  controls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Training set, receipts and release workflow order
+        run: python3 -m unittest tests/perf/test_pgo.py -v
+      - name: Generate the training fixtures twice
+        run: |
+          python3 tests/perf/fixtures.py --out build/fixtures-a
+          python3 tests/perf/fixtures.py --out build/fixtures-b
+          cmp <(jq -S .files build/fixtures-a/manifest.json) <(jq -S .files build/fixtures-b/manifest.json)
+          jq '{ffmpeg, files: (.files | length)}' build/fixtures-a/manifest.json >> "$GITHUB_STEP_SUMMARY"
