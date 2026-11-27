@@ -14,6 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGET = 'mipsel-q2-os-linux-gnu'
 SDK_PREFIX = 'mipsel-buildroot-linux-gnu-'
 PACKAGES = ('q2nd', 'q2-portal')
+# Cargo features per package. A release build enables none beyond these; the
+# emulator diagnostic build adds DIAGNOSTIC_FEATURES to q2nd.
+RELEASE_FEATURES = {'q2nd': [], 'q2-portal': []}
+DIAGNOSTIC_FEATURES = ['stall-sampler']
 
 
 def git(path, *args):
@@ -44,7 +48,10 @@ def main():
         parser.add_argument('--' + flag, type=Path, required=True)
     parser.add_argument('--component-lock', type=Path, default=ROOT / 'component-lock.json')
     parser.add_argument('--producer-inputs', type=Path, help='admitted CI producer identities')
-    parser.add_argument('--unwinder', type=Path, help='optional target libunwind prefix')
+    parser.add_argument('--emulator-diagnostics', action='store_true',
+                        help='build q2nd with the stall sampler; the output is not for release')
+    parser.add_argument('--unwinder', type=Path,
+                        help='target libunwind prefix for sampler stacks; requires --emulator-diagnostics')
     parser.add_argument('--profile-use', type=Path, help='optional q2nd PGO profile for these inputs')
     args = parser.parse_args()
     sdk = args.sdk.resolve()
@@ -68,6 +75,8 @@ def main():
     for path in (compiler_helper, target_base, settings, args.profile_use):
         if path is not None and not path.is_file():
             parser.error(f'file required: {path}')
+    if args.unwinder and not args.emulator_diagnostics:
+        parser.error('--unwinder requires --emulator-diagnostics; release builds link no unwinder')
     if args.unwinder and not all((args.unwinder / file).is_file()
                                  for file in ('include/libunwind.h', 'lib/libunwind.a')):
         parser.error('--unwinder must provide include/libunwind.h and lib/libunwind.a')
@@ -101,11 +110,16 @@ def main():
     }
     if args.unwinder:
         identities['unwinder'] = sha(args.unwinder / 'lib/libunwind.a')
+    features = {name: list(value) for name, value in RELEASE_FEATURES.items()}
+    if args.emulator_diagnostics:
+        features['q2nd'] += DIAGNOSTIC_FEATURES
+    # Compare this with the build that produced a --profile-use profile.
+    feature_set = hashlib.sha256(json.dumps(features, sort_keys=True).encode()).hexdigest()
     if args.profile_use:
         identities['profile_use'] = sha(args.profile_use)
     compiler_env = x2000.cargo_env(sdk=sdk)
     cache_data = (identities, target_spec, {key: str(value) for key, value in compiler_env.items()},
-                  str(sdk), str(linker), str(args.unwinder), str(args.profile_use))
+                  str(sdk), str(linker), str(args.unwinder), str(args.profile_use), features)
     cache_key = hashlib.sha256(json.dumps(cache_data, sort_keys=True).encode()).hexdigest()[:20]
     target_dir = ROOT / 'build' / ('player-target-' + cache_key)
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -133,6 +147,8 @@ def main():
     for name in PACKAGES:
         flags = rustflags.copy()
         options = []
+        if features[name]:
+            options += ['--features', ','.join(features[name])]
         if name == 'q2nd':
             options.append('--no-default-features')
             if args.profile_use:
@@ -163,6 +179,9 @@ def main():
     (out / 'source-commit').write_text(source_commit + '\n')
     with (out / 'result.json').open('x') as receipt:
         json.dump({'passed': True, 'source_commit': source_commit, 'target': TARGET,
+                   'profile': 'emulator-diagnostic' if args.emulator_diagnostics else 'release',
+                   'release_eligible': not args.emulator_diagnostics,
+                   'features': features, 'feature_set_sha256': feature_set,
                    'components': component_commits, 'inputs_sha256': identities, 'artifacts': artifacts}, receipt, indent=2)
         receipt.write('\n')
 

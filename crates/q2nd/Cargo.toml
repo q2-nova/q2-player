@@ -44,6 +44,10 @@ tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net"
 default = ["sim"]
 # The desktop simulator's window.
 sim = ["dep:minifb"]
+# The interrupted-owner stall sampler (vendor/diagnostics/stall.c) and its
+# optional libunwind stacks. Emulator diagnostics only; release builds leave
+# it off (docs/target-build.md).
+stall-sampler = []
 
 [dev-dependencies]
 subsonic = { version = "0.1.0", path = "../subsonic", features = ["scrobble-fixtures"] }

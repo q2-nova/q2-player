@@ -410,9 +410,11 @@ fn main() {
         }
     };
     if diagnostics::reconfigure(&rt::Blocking::dedicated_thread(), &diagnostic_directory, &effective_telemetry).is_err() {
-        log::warn!("Numeric diagnostic sampler unavailable");
+        log::warn!("Numeric diagnostics unavailable");
     }
     diagnostics::register(1);
+    #[cfg(feature = "stall-sampler")]
+    log::warn!("{}", diagnostics::DIAGNOSTIC_BUILD);
 
     // The runtimes exist from here on: `io` (its own thread) carries the
     // Wi-Fi monitor and HTTP; the UI runtime is built now so its cost is in every

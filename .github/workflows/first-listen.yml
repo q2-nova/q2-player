@@ -33,6 +33,12 @@ jobs:
         run: |
           mkdir -p build/ci-cargo-home
           CARGO_HOME="$PWD/build/ci-cargo-home" python3 tests/e2e/first-listen.py --out build/first-listen
+      - name: Check that the default build has no stall sampler
+        run: |
+          if nm build/first-listen-target/debug/q2nd | grep -E ' q2_stall_'; then
+            echo 'the default q2nd build links the stall sampler' >&2
+            exit 1
+          fi
       - name: Summarize generated playback
         run: |
           python3 - <<'PYTHON' >> "$GITHUB_STEP_SUMMARY"

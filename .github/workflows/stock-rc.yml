@@ -66,6 +66,7 @@ jobs:
             --toolchain-repo build/stock-rc-inputs/q2-toolchain --compiler-work build/stock-rc-inputs/compiler \
             --os-repo build/stock-rc-inputs/q2-os --producer-inputs build/stock-rc-inputs/producer-inputs.json \
             --out build/paired-player
+          jq -e '.profile == "release" and .release_eligible == true and .features.q2nd == []' build/paired-player/result.json
       - name: Prepare, pack, read back and boot the exact stock archive
         run: bash tools/build-stock-rc.sh
       - name: Attach the checked bytes to a new private draft

@@ -17,6 +17,9 @@ KEY_PATHS = {'etc/q2-bootstrap/hostkey', 'root/.ssh/authorized_keys'}
 PAGE = 2048
 STRIDE = 2112
 ERASE = 131072
+# crates/q2nd/src/diagnostics.rs DIAGNOSTIC_BUILD: only a build with the
+# stall-sampler feature (build-target.py --emulator-diagnostics) contains it.
+DIAGNOSTIC_MARKER = b'Q2ND-EMULATOR-DIAGNOSTIC-BUILD'
 
 
 def sha(data):
@@ -44,6 +47,11 @@ def filesystem_tool(tool, cwd, *args):
         cmd = ['podman', 'run', '--rm', '--network=none', '--security-opt', 'label=disable',
                '-v', f'{cwd}:/files:ro', '-w', '/files', 'q2-os-build', tool, *args]
     return subprocess.check_output(cmd, cwd=cwd)
+
+
+def refuse_diagnostic_build(player):
+    if DIAGNOSTIC_MARKER in player:
+        raise ValueError('q2nd is an emulator diagnostic build (stall sampler); it is not for release')
 
 
 def check_packed_keys(names):
@@ -81,8 +89,11 @@ def pack(args, pins, fmt):
     for name, digest in [('usr/bin/q2nd', m['app_sha256']),
                          ('usr/libexec/q2-network/q2-portal', m['portal_helper']['sha256']),
                          ('usr/libexec/q2-network/tsrsd', m['tsrsd']['sha256'])]:
-        if sha(filesystem_tool('unsquashfs', image, '-cat', 'rootfs.squashfs', name)) != digest:
+        executable = filesystem_tool('unsquashfs', image, '-cat', 'rootfs.squashfs', name)
+        if sha(executable) != digest:
             raise ValueError(f'packaged executable differs from paired build: {name}')
+        if name == 'usr/bin/q2nd' and not args.allow_diagnostic_build:
+            refuse_diagnostic_build(executable)
     print(json.dumps(write_package(args, image, m, fmt), indent=2))
 
 
@@ -130,8 +141,11 @@ def stock_image(image, manifest, pins, source, version):
     for name, digest in [('usr/bin/q2nd', m['app_sha256']),
                          ('usr/libexec/q2-network/q2-portal', m['portal_helper']['sha256']),
                          ('usr/libexec/q2-network/tsrsd', m['tsrsd']['sha256'])]:
-        if sha(filesystem_tool('unsquashfs', image, '-cat', 'rootfs.squashfs', name)) != digest:
+        executable = filesystem_tool('unsquashfs', image, '-cat', 'rootfs.squashfs', name)
+        if sha(executable) != digest:
             raise ValueError(f'stock executable differs from its installed OS manifest: {name}')
+        if name == 'usr/bin/q2nd':
+            refuse_diagnostic_build(executable)
 
 
 def stock_root(image, pins, source, version):
@@ -166,6 +180,8 @@ def paired_build(path, source, manifest, pins):
     record = json.loads(raw)
     artifacts = record.get('artifacts', {})
     components = record.get('components', {})
+    if record.get('profile', 'release') != 'release' or record.get('release_eligible', True) is not True:
+        raise ValueError('paired target build is an emulator diagnostic build; it is not for release')
     if (record.get('passed') is not True or record.get('target') != 'mipsel-q2-os-linux-gnu'
             or record.get('source_commit') != source
             or components.get('q2-toolchain') != pins['q2-toolchain']
@@ -320,6 +336,9 @@ def main():
         package.add_argument('--image', type=Path, required=True)
         package.add_argument('--version', required=True)
         package.add_argument('--installed-version', required=True)
+        if name == 'pack':
+            package.add_argument('--allow-diagnostic-build', action='store_true',
+                                 help='pack an emulator diagnostic q2nd for local emulator use, never for release')
         if name == 'pack-stock':
             package.add_argument('--player-commit', help='exact retained player commit in this checkout history')
             package.add_argument('--paired-build-receipt', type=Path, help='receipt from the retained player and portal build')

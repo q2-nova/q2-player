@@ -1,6 +1,11 @@
-//! Opt-in numeric incident reports. The independent sampler can persist a
-//! blocked executor's stack; delivery uses the existing I/O runtime only while
-//! the radio is already online. No ordinary logs or media data enter reports.
+//! Opt-in numeric incident reports. Delivery uses the existing I/O runtime
+//! only while the radio is already online. No ordinary logs or media data
+//! enter reports. With the `stall-sampler` feature (emulator diagnostics
+//! only), the independent sampler can also persist a blocked executor's
+//! stack. Without it, `PollScope` and `WallScope` are empty, no observer
+//! thread starts and no `q2_stall_*` symbol is referenced; crash, panic,
+//! process-exit, health, memory and UX reports are unchanged, and the stall
+//! fields of every report keep their empty values.
 use crate::rt::Blocking;
 use crate::config::telemetry::{Telemetry, Stream};
 mod crash;
@@ -13,10 +18,13 @@ mod identity;
 #[cfg(test)]
 mod import_tests;
 use serde::{Deserialize, Serialize};
-use std::os::unix::net::UnixDatagram;
 use std::{collections::HashMap, io::{self, Read, Write}, path::{Path, PathBuf},
-    os::{fd::IntoRawFd, unix::fs::OpenOptionsExt},
-    sync::{Arc, OnceLock, Mutex, atomic::{AtomicBool, AtomicU32, Ordering}}, time::{Duration, Instant}};
+    os::unix::fs::OpenOptionsExt,
+    sync::{Arc, OnceLock, Mutex, atomic::{AtomicBool, AtomicU32, Ordering}}, time::Duration};
+#[cfg(feature = "stall-sampler")]
+use std::os::{fd::IntoRawFd, unix::net::UnixDatagram};
+#[cfg(any(feature = "stall-sampler", test))]
+use std::time::Instant;
 
 const LIMIT: usize = 256;
 const REPORT_BYTES: usize = 12 * 1024;
@@ -26,12 +34,14 @@ static ONLINE: AtomicBool = AtomicBool::new(false);
 static WAKE: tokio::sync::Notify = tokio::sync::Notify::const_new();
 static FAILURES: AtomicU32 = AtomicU32::new(0);
 
+#[cfg(feature = "stall-sampler")]
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct Sample {
     version: u32, role: u32, tid: u32, task: u32, sequence: u32,
     elapsed_ms: u32, count: u32, status: i32, generation: u32, reserved: u32, monotonic_us: u64, pc: [u64; 48],
 }
+#[cfg(feature = "stall-sampler")]
 unsafe extern "C" {
     fn q2_stall_collecting(collecting: i32) -> u32;
     fn q2_stall_generation() -> u32;
@@ -51,6 +61,7 @@ struct Transport { endpoint: String, token: String }
 struct State {
     directory: PathBuf, transport: Mutex<Transport>, boot: String, build: String,
     capture: Mutex<CaptureState>, delivery_gate: tokio::sync::Mutex<()>,
+    #[cfg_attr(not(feature = "stall-sampler"), allow(dead_code))]
     modules: Mutex<HashMap<PathBuf, String>>,
     process: ProcessIdentity,
     _spool_lock: Option<std::fs::File>,
@@ -65,9 +76,15 @@ struct Context {
 impl Default for Context {
     fn default() -> Self { Self { stream:Stream::Production, labels:vec![], run_id:None, kernel:None, platform:None, clock:"boottime".into() } }
 }
-struct CaptureState { enabled: bool, context: Context, since_us: u64, generation: u32 }
+struct CaptureState {
+    enabled: bool, context: Context, since_us: u64,
+    /// The sampler's capture generation; samples from another are stale.
+    #[cfg(feature = "stall-sampler")]
+    generation: u32,
+}
 impl Default for CaptureState {
-    fn default() -> Self { Self { enabled: true, context: Context::default(), since_us: 0, generation: 0 } }
+    fn default() -> Self { Self { enabled: true, context: Context::default(), since_us: 0,
+        #[cfg(feature = "stall-sampler")] generation: 0 } }
 }
 fn boot_us() -> io::Result<u64> {
     let mut time = libc::timespec { tv_sec: 0, tv_nsec: 0 };
@@ -135,6 +152,7 @@ fn bounded(_blocking: &Blocking, path: &Path, limit: usize) -> io::Result<Vec<u8
     if bytes.len() > limit { return Err(io::Error::other("diagnostic input bound")); }
     Ok(bytes)
 }
+#[cfg_attr(not(feature = "stall-sampler"), allow(dead_code))]
 fn hash(blocking: &Blocking, path: &Path) -> io::Result<String> {
     // Actual deployed bytes, not a version string. Chunked so hashing a module
     // never allocates its whole text image. Call only on ordinary owners.
@@ -315,6 +333,7 @@ pub fn reconfigure(blocking: &Blocking, directory: &Path, settings: &Telemetry) 
         return Ok(());
     }
     ACTIVE.store(false, Ordering::Release);
+    #[cfg(feature = "stall-sampler")]
     unsafe { q2_stall_collecting(0); }
     crash::disable();
     capture.enabled = false;
@@ -345,10 +364,13 @@ pub fn reconfigure(blocking: &Blocking, directory: &Path, settings: &Telemetry) 
     capture.context = context;
     capture.since_us = boot_us()?;
     capture.enabled = settings.enabled;
-    capture.generation = unsafe { q2_stall_collecting(i32::from(settings.enabled)) };
-    if capture.generation == 0 {
-        capture.enabled = false;
-        return Err(io::Error::other("telemetry capture generation exhausted"));
+    #[cfg(feature = "stall-sampler")]
+    {
+        capture.generation = unsafe { q2_stall_collecting(i32::from(settings.enabled)) };
+        if capture.generation == 0 {
+            capture.enabled = false;
+            return Err(io::Error::other("telemetry capture generation exhausted"));
+        }
     }
     ACTIVE.store(settings.enabled, Ordering::Release);
     WAKE.notify_one();
@@ -369,25 +391,44 @@ fn initialize(blocking: &Blocking, directory: PathBuf, transport: Transport, con
     if !spool_lock.metadata()?.is_file() || unsafe {libc::flock(spool_lock.as_raw_fd(),libc::LOCK_EX|libc::LOCK_NB)}!=0 {
         return Err(io::Error::other("telemetry spool already owned"));
     }
+    let state = Arc::new(State { directory, transport: Mutex::new(transport), boot, build, process, modules: Mutex::default(),
+        capture: Mutex::new(CaptureState { enabled: false, context, since_us: boot_us()?,
+            #[cfg(feature = "stall-sampler")] generation: 0 }),
+        delivery_gate: tokio::sync::Mutex::new(()),_spool_lock:Some(spool_lock),health:Mutex::default() });
+    #[cfg(feature = "stall-sampler")]
+    start_sampler()?;
+    STATE.set(state).map_err(|_|io::Error::other("diagnostics already initialized"))?;
+    Ok(())
+}
+
+/// Present only in a build with the sampler. tools/verify-package.py looks
+/// for these bytes and refuses to pack such a build for release.
+#[cfg(feature = "stall-sampler")]
+pub const DIAGNOSTIC_BUILD: &str = "Q2ND-EMULATOR-DIAGNOSTIC-BUILD: stall sampler enabled, not for release";
+
+/// Process-lifetime descriptors: the sampler has no route to ordinary app
+/// data, owns its signal, and exits with the process. Never reused after close.
+#[cfg(feature = "stall-sampler")]
+fn start_sampler() -> io::Result<()> {
     let (writer, reader) = UnixDatagram::pair()?;
     writer.set_nonblocking(true)?; reader.set_nonblocking(true)?;
-    let state = Arc::new(State { directory, transport: Mutex::new(transport), boot, build, process, modules: Mutex::default(),
-        capture: Mutex::new(CaptureState { enabled: false, context, since_us: boot_us()?, generation: 0 }), delivery_gate: tokio::sync::Mutex::new(()),_spool_lock:Some(spool_lock),health:Mutex::default() });
-    // Process-lifetime descriptors: the sampler has no route to ordinary app
-    // data, owns its signal, and exits with the process. Never reused after close.
     let writer = writer.into_raw_fd(); let reader = reader.into_raw_fd();
     if unsafe { q2_stall_start(writer, reader, captured) } != 0 {
         // Startup failure creates no observer and restores the signal handler.
         unsafe { libc::close(writer); libc::close(reader); }
         return Err(io::Error::other("diagnostic sampler refused startup"));
     }
-    STATE.set(state).map_err(|_|io::Error::other("diagnostics already initialized"))?;
     Ok(())
 }
 
+/// Names this thread as a sampler owner (1 UI, 2 IO, 3 player).
+#[cfg(feature = "stall-sampler")]
 pub fn register(role: u32) {
     unsafe { q2_stall_register(role); }
 }
+#[cfg(not(feature = "stall-sampler"))]
+#[inline(always)]
+pub fn register(_role: u32) {}
 
 /// Admissions waiting for a busy capture boundary on a blocking worker.
 static DEFERRED: AtomicU32 = AtomicU32::new(0);
@@ -489,25 +530,41 @@ pub fn observe_kernel_archive(blocking: &Blocking) {
     if retain(blocking,&state.directory,&report).is_err() {FAILURES.fetch_add(1,Ordering::Relaxed);}
     else {WAKE.notify_one();}
 }
-pub struct PollScope(u32);
 /// Preserve a numeric future-type fingerprint before runtime boxing erases it.
 /// This is an attribution hint within an exact build, never a unique identity.
 pub fn task_tag(name: &str) -> u32 {
     name.bytes().fold(2166136261u32, |hash, byte| (hash ^ u32::from(byte)).wrapping_mul(16777619)) | 0x80000000
 }
+/// One executor poll, visible to the sampler while it runs.
+#[cfg(feature = "stall-sampler")]
+pub struct PollScope(u32);
+#[cfg(feature = "stall-sampler")]
 impl PollScope {
     pub fn enter(task: u32) -> Self {
         Self(if ACTIVE.load(Ordering::Acquire) { unsafe { q2_stall_enter(task) } } else { 0 })
     }
 }
+#[cfg(feature = "stall-sampler")]
 impl Drop for PollScope { fn drop(&mut self) { if self.0 != 0 { unsafe { q2_stall_leave(self.0); } } } }
+/// Without the sampler, an empty guard with no drop code.
+#[cfg(not(feature = "stall-sampler"))]
+pub struct PollScope;
+#[cfg(not(feature = "stall-sampler"))]
+impl PollScope {
+    #[inline(always)]
+    pub fn enter(_task: u32) -> Self { Self }
+}
+/// One wall-latency operation; the sampler notes those of 250 ms or more.
+#[cfg(feature = "stall-sampler")]
 pub struct WallScope { started: Option<Instant>, role: u32, task: u32, ticket: u32, generation: u32 }
+#[cfg(feature = "stall-sampler")]
 impl WallScope {
     pub fn new(role: u32, task: u32) -> Self {
         let started = ACTIVE.load(Ordering::Acquire).then(Instant::now);
         Self { started, role, task, generation: unsafe { q2_stall_generation() }, ticket: if started.is_some() { unsafe { q2_stall_wall_enter(task) } } else { 0 } }
     }
 }
+#[cfg(feature = "stall-sampler")]
 impl Drop for WallScope {
     fn drop(&mut self) {
         if self.ticket != 0 { unsafe { q2_stall_wall_leave(self.ticket); } }
@@ -518,6 +575,16 @@ impl Drop for WallScope {
     }
 }
 
+/// Without the sampler, an empty guard with no drop code.
+#[cfg(not(feature = "stall-sampler"))]
+pub struct WallScope;
+#[cfg(not(feature = "stall-sampler"))]
+impl WallScope {
+    #[inline(always)]
+    pub fn new(_role: u32, _task: u32) -> Self { Self }
+}
+
+#[cfg(feature = "stall-sampler")]
 extern "C" fn captured(sample: *const Sample) {
     // Called by the independent observer, never from the signal handler or a
     // runtime. C owns a full aligned Sample until this callback returns.
@@ -525,6 +592,7 @@ extern "C" fn captured(sample: *const Sample) {
     let result = std::panic::catch_unwind(|| capture(&Blocking::dedicated_thread(), sample));
     if !matches!(result, Ok(Ok(()))) { FAILURES.fetch_add(1, Ordering::Relaxed); }
 }
+#[cfg(feature = "stall-sampler")]
 fn capture(blocking: &Blocking, sample: Sample) -> io::Result<()> {
     let state = STATE.get().ok_or_else(|| io::Error::other("diagnostics unavailable"))?;
     if sample.version != 2 || !(1..=3).contains(&sample.role) || sample.count > 48 { return Err(io::Error::other("invalid sample")); }
@@ -544,6 +612,7 @@ fn capture(blocking: &Blocking, sample: Sample) -> io::Result<()> {
     retain(blocking, &state.directory, &report)?; WAKE.notify_one(); Ok(())
 }
 
+#[cfg(feature = "stall-sampler")]
 fn frames(blocking: &Blocking, state: &State, pcs: &[u64]) -> io::Result<Vec<Frame>> {
     if pcs.is_empty() { return Ok(Vec::new()); }
     use std::os::unix::fs::{FileExt, MetadataExt};
@@ -587,6 +656,7 @@ fn frames(blocking: &Blocking, state: &State, pcs: &[u64]) -> io::Result<Vec<Fra
     }
     Ok(frames)
 }
+#[cfg(feature = "stall-sampler")]
 fn elf_address(_blocking: &Blocking, file: &mut std::fs::File, header: &[u8;64], start: u64, offset: u64, pc: u64) -> Option<u64> {
     use std::io::{Seek,SeekFrom};
     let u16at=|p|u16::from_le_bytes(header[p..p+2].try_into().unwrap());
@@ -867,19 +937,28 @@ mod tests {
             run_id:Some("00000000-0000-4000-8000-000000000003".into()),
             endpoint:Some("http://127.0.0.1:8766".into()),token:Some("a".repeat(64)),..Telemetry::default()};
         reconfigure(&blocking,&path,&settings).unwrap();
+        #[cfg(feature = "stall-sampler")]
         let old_generation=unsafe { q2_stall_generation() };
+        #[cfg(feature = "stall-sampler")]
         let sample=|generation|Sample {version:2,role:1,tid:1,task:1,sequence:1,elapsed_ms:500,count:0,status:-2000,
             generation,reserved:0,monotonic_us:boot_us().unwrap()+1_000_000,pc:[0;48]};
+        #[cfg(feature = "stall-sampler")]
         capture(&blocking,sample(old_generation)).unwrap();
         settings.stream=Stream::Production;settings.run_id=None;
         reconfigure(&blocking,&path,&settings).unwrap();
-        // A timestamp newer than the boundary does not rescue an old sample.
-        capture(&blocking,sample(old_generation)).unwrap();
-        capture(&blocking,sample(unsafe { q2_stall_generation() })).unwrap();
         let outbox=path.join("outbox-v2");
-        let rows=pending(&blocking,&outbox).unwrap();assert_eq!(rows.len(),2);
-        let mut streams:Vec<_>=rows.iter().map(|row|serde_json::from_slice::<Report>(&bounded(&blocking,row,REPORT_BYTES).unwrap()).unwrap().context.stream.as_str()).collect();
-        streams.sort();assert_eq!(streams,["automated-test","production"]);
+        #[cfg(feature = "stall-sampler")]
+        {
+            // A timestamp newer than the boundary does not rescue an old sample.
+            capture(&blocking,sample(old_generation)).unwrap();
+            capture(&blocking,sample(unsafe { q2_stall_generation() })).unwrap();
+            let rows=pending(&blocking,&outbox).unwrap();assert_eq!(rows.len(),2);
+            let mut streams:Vec<_>=rows.iter().map(|row|serde_json::from_slice::<Report>(&bounded(&blocking,row,REPORT_BYTES).unwrap()).unwrap().context.stream.as_str()).collect();
+            streams.sort();assert_eq!(streams,["automated-test","production"]);
+        }
+        // Without the sampler, nothing reaches the outbox until a report is admitted.
+        #[cfg(not(feature = "stall-sampler"))]
+        assert!(pending(&blocking,&outbox).unwrap().is_empty());
         // Hold the three existing job workers so the real metrics hook must
         // preserve admission context across a later switch, without a RAM sink.
         let (started,ready)=std::sync::mpsc::channel();
@@ -931,6 +1010,7 @@ mod tests {
         }
         assert_eq!(FAILURES.load(Ordering::Relaxed),before);
         reconfigure(&blocking,&path,&Telemetry::default()).unwrap();
+        #[cfg(feature = "stall-sampler")]
         assert_eq!(unsafe { q2_stall_generation() },0);
         assert!(!ACTIVE.load(Ordering::Acquire));
         assert!(pending(&blocking,&outbox).unwrap().is_empty());
@@ -954,7 +1034,18 @@ mod tests {
         std::fs::remove_dir_all(path).unwrap();
         assert!(result.status.success(),"generated context child failed: {}",String::from_utf8_lossy(&result.stderr));
     }
+    /// The sampler's symbols are linked exactly when the feature is on. Reads
+    /// this test executable, which links the same q2nd code as the player.
     #[test]
+    fn stall_sampler_symbols_follow_the_feature() {
+        let listing=std::process::Command::new("nm").arg(std::env::current_exe().unwrap()).output().unwrap();
+        assert!(listing.status.success(),"nm could not read the test executable");
+        let listing=String::from_utf8_lossy(&listing.stdout);
+        let sampler=listing.lines().any(|line|line.split_whitespace().last().is_some_and(|name|name.starts_with("q2_stall_")));
+        assert_eq!(sampler,cfg!(feature = "stall-sampler"),"q2_stall_ symbols present: {sampler}");
+    }
+    #[test]
+    #[cfg(feature = "stall-sampler")]
     fn dynamic_elf_addresses_account_for_nonzero_segment_virtual_addresses() {
         let (path,_blocking)=fixture();
         for class in [1u8,2] {
@@ -1049,6 +1140,7 @@ async fn deliver(agent: &subsonic::http::Agent, state: Arc<State>, online: &Atom
 /// Explicit generated process only, before ordinary player initialization.
 /// Exercises the real poll wrapper, observer, durable outbox and HTTP sender
 /// without loading a library/configuration or touching display/audio hardware.
+#[cfg(feature = "stall-sampler")]
 pub fn fixture(blocking: &Blocking, directory: PathBuf, mode: &str) -> io::Result<()> {
     if !matches!(mode,"capture"|"deliver") {return Err(io::Error::other("unknown fixture phase"));}
     let settings=crate::config::telemetry::load_overlay(blocking,&Telemetry::default(),&directory.join("telemetry-overlay.toml"))?;
@@ -1097,5 +1189,12 @@ pub fn fixture(blocking: &Blocking, directory: PathBuf, mode: &str) -> io::Resul
 
 /// Deliberate fault reached only by the explicit generated fixture above.
 /// Keep a real Rust frame so local symbols can verify interrupted attribution.
+#[cfg(feature = "stall-sampler")]
 #[inline(never)]
 fn generated_blocked_poll() { std::thread::sleep(Duration::from_millis(600)); }
+
+/// The fixture exercises the sampler; a build without it has none to run.
+#[cfg(not(feature = "stall-sampler"))]
+pub fn fixture(_blocking: &Blocking, _directory: PathBuf, _mode: &str) -> io::Result<()> {
+    Err(io::Error::other("the runtime diagnostics fixture requires the stall-sampler feature"))
+}
