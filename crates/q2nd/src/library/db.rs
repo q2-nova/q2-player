@@ -10,6 +10,7 @@ pub(crate) mod catalog;
 mod music_reconcile;
 mod offline_groups;
 mod auto_downloads;
+mod generated;
 pub(super) mod mix_space;
 
 const SCHEMA: &str = "
