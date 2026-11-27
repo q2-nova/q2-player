@@ -324,7 +324,7 @@ fn spawn_worker(lib: &Arc<Library>) {
                 for media in [Media::Book, Media::Podcast] {
                     let choices = match owner.shelf_library_choices_async(media, Policy::NetworkOnly).await {
                         Ok(choices) => choices,
-                        Err(_) => { incomplete = true; continue; }
+                        Err(e) => { log::warn!("library sync: {media:?} libraries: {e}"); incomplete = true; continue; }
                     };
                     for choice in choices.libraries {
                         let reporter = owner.clone();
@@ -336,7 +336,7 @@ fn spawn_worker(lib: &Arc<Library>) {
                         };
                         match owner.sync_shelf_library_from(choice.id, media, &progress, report).await {
                             Ok(progress) => covers_missing += progress.unavailable_covers,
-                            Err(_) => incomplete = true,
+                            Err(e) => { log::warn!("library sync: a {media:?} library: {e}"); incomplete = true; }
                         }
                     }
                 }

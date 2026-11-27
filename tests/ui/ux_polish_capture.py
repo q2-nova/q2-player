@@ -16,7 +16,8 @@ PNG of every reachable screen under build/ux-polish/<stamp>/<scenario>/:
   refuse connections: Books from the card.
 
 Each scenario also writes ``text.json``: every string drawn per capture.
-Generated data only.
+``online`` and ``synced`` fail unless the player's first Audiobookshelf
+library sync completes. Generated data only.
 
     python3 tests/ui/ux_polish_capture.py [--binary target/debug/q2nd] [--only NAME ...]
 """
@@ -25,6 +26,7 @@ import concurrent.futures
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -168,8 +170,8 @@ class RichLibrary(fx.Library):
                 items = [] if self.empty else items
                 rest = path[len(root):]
                 if rest.startswith('/items'):
-                    page = items if self.query_page == 0 else []
-                    return {'results': page, 'page': self.query_page, 'limit': self.query_limit, 'total': len(items)}
+                    return {'results': self.window(items), 'page': self.query_page, 'limit': self.query_limit,
+                            'total': len(items)}
                 if rest == '/personalized':
                     shelves = []
                     if items:
@@ -183,8 +185,8 @@ class RichLibrary(fx.Library):
                 if rest == '/narrators':
                     return {'narrators': [] if self.empty else [{'id': 'n', 'name': 'Synthetic Narrator', 'numBooks': 4}]}
                 if rest == '/recent-episodes':
-                    eps = [] if self.empty or self.query_page else [dict(self.episode, podcast=self.show['media'])]
-                    return {'page': self.query_page, 'limit': self.query_limit, 'episodes': eps}
+                    eps = [] if self.empty else [dict(self.episode, podcast=self.show['media'])]
+                    return {'page': self.query_page, 'limit': self.query_limit, 'episodes': self.window(eps)}
                 if rest == '/search':
                     return {'book': [{'libraryItem': i} for i in items], 'podcast': []}
                 groups = {'/series': ('generated-series', 'Generated Series'),
@@ -193,9 +195,10 @@ class RichLibrary(fx.Library):
                           '/authors': ('generated-author', 'Synthetic Author')}
                 if rest in groups:
                     ident, name = groups[rest]
-                    results = [] if self.empty or self.query_page or library != 'generated-books' else [
+                    results = [] if self.empty or library != 'generated-books' else [
                         {'id': ident, 'name': name, 'numBooks': len(items), 'books': items}]
-                    return {'results': results, 'page': self.query_page, 'limit': self.query_limit, 'total': len(results)}
+                    return {'results': self.window(results), 'page': self.query_page, 'limit': self.query_limit,
+                            'total': len(results)}
             if path.startswith('/api/collections/'):
                 return {'libraryId': 'generated-books', 'books': [] if self.empty else self.books}
             if path.startswith('/api/playlists/'):
@@ -227,7 +230,14 @@ class RichLibrary(fx.Library):
 
     @property
     def query_limit(self):
-        return getattr(self._request, 'limit', 50)
+        return getattr(self._request, 'limit', 0)
+
+    def window(self, rows):
+        """The rows of the requested page, as Audiobookshelf pages a list:
+        ``limit`` rows from ``page * limit`` (0-indexed); no ``limit`` (or 0)
+        answers every row and ignores ``page``."""
+        limit = self.query_limit
+        return rows[self.query_page * limit:(self.query_page + 1) * limit] if limit else rows
 
     def handler(self, service):
         base = super().handler(service)
@@ -239,7 +249,7 @@ class RichLibrary(fx.Library):
                 url = urlsplit(self.path)
                 query = parse_qs(url.query)
                 library._request.page = int(query.get('page', ['0'])[0] or 0)
-                library._request.limit = int(query.get('limit', ['50'])[0] or 50)
+                library._request.limit = int(query.get('limit', ['0'])[0] or 0)
                 path = url.path
                 if service.name == 'abs' and '/file/' in path and not path.startswith('/api/items/generated-book/'):
                     self.media(library.book_audio, method == 'HEAD')
@@ -474,6 +484,16 @@ def synced(s, settle='wait 16000'):
     return s
 
 
+# Scenarios whose Audiobookshelf library sync must complete before the fault.
+SYNCED = ('online', 'synced')
+SYNC_RESULT = re.compile(r'library sync measure: abs .* result=(\w+)')
+
+
+def sync_results(logtext):
+    """The result of each Audiobookshelf library sync the player logged."""
+    return SYNC_RESULT.findall(logtext)
+
+
 SCENARIOS = {
     'online': (online, None, {}),
     'synced': (synced, ('reset', {'delay_s': 12}), {}),
@@ -537,8 +557,10 @@ def run(name, binary, base):
         logtext = (out / 'player.log').read_text(errors='replace')
         failure = [line for line in logtext.splitlines() if 'headless script: ' in line]
         missing = [shot for shot in script.shots if not (out / f'{shot}.png').exists()]
+        syncs = sync_results(logtext)
         return {'scenario': name, 'exit': proc.returncode, 'elapsed_s': round(time.monotonic() - started, 1),
-                'shots': len(script.shots) - len(missing), 'missing': missing,
+                'shots': len(script.shots) - len(missing), 'missing': missing, 'syncs': syncs,
+                'sync_ok': name not in SYNCED or (syncs[:1] or [None])[0] in ('complete', 'covers_missing'),
                 'script_failure': failure[-1][:300] if failure else None}
     finally:
         fixture.close()
@@ -563,9 +585,11 @@ def main():
     (base / 'summary.json').write_text(json.dumps(results, indent=1) + '\n')
     for r in results:
         print(f"{r['scenario']:<8} exit {r['exit']} shots {r['shots']} {r['elapsed_s']} s"
-              + (f" missing {r['missing']}" if r['missing'] else '') + (f" — {r['script_failure']}" if r['script_failure'] else ''))
+              + (f" missing {r['missing']}" if r['missing'] else '')
+              + ('' if r['sync_ok'] else f" library sync {r['syncs'] or 'not run'}")
+              + (f" — {r['script_failure']}" if r['script_failure'] else ''))
     print(base)
-    return 0 if all(r['exit'] == 0 and not r['missing'] for r in results) else 1
+    return 0 if all(r['exit'] == 0 and not r['missing'] and r['sync_ok'] for r in results) else 1
 
 
 if __name__ == '__main__':

@@ -25,7 +25,7 @@ jobs:
           persist-credentials: false
       - name: Fault fixture, screen text and device transport controls
         working-directory: tests/ui
-        run: python3 -m unittest -v test_ux_faults test_ux_device_capture
+        run: python3 -m unittest -v test_ux_faults test_ux_device_capture test_ux_polish_capture
       - name: Diagnostic receiver controls
         run: python3 -m unittest -v tests/perf/test_diagnostic_receiver.py
 
