@@ -1302,7 +1302,7 @@ mod tests {
         let dir = fixture();
         let blocking = crate::rt::Blocking::dedicated_thread();
         let resolve = |dir: &Path| resolve(&blocking, dir);
-        assert!(resolve(&dir).unwrap_err().to_string().contains("Install Tailscale"));
+        assert!(resolve(&dir).unwrap_err().to_string().contains("no Tailscale daemon"));
         // An image built with the Go option, or from before tailscale-rs.
         executable(&dir.join("tailscaled"), "#!/bin/sh\n");
         assert!(resolve(&dir).is_err(), "the Go daemon needs its CLI");

@@ -369,10 +369,12 @@ mod tests {
         assert_eq!(subscription.recv().await, Packet::Relevant);
         daemon.send_to(b"<3>CTRL-EVENT-NETWORK-NOT-FOUND", &path).await.unwrap();
         assert_eq!(subscription.recv().await, Packet::NotFound);
-        // A replaced daemon is noticed by identity.
+        // A replaced daemon is noticed by identity. The replacement is bound
+        // while the old socket still exists, so it has another inode on any
+        // filesystem (ext4 reuses a freed inode number at once).
+        let _replacement = UnixDatagram::bind(dir.join("wlan0.new")).unwrap();
+        std::fs::rename(dir.join("wlan0.new"), dir.join("wlan0")).unwrap();
         drop(daemon);
-        std::fs::remove_file(dir.join("wlan0")).unwrap();
-        let _replacement = UnixDatagram::bind(dir.join("wlan0")).unwrap();
         assert!(!subscription.current().await);
         drop(subscription);
         std::fs::remove_dir_all(&dir).unwrap();
