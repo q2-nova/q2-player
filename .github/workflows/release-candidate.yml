@@ -17,6 +17,9 @@ on:
           - qemu-rehearsal
           - stock-draft
         default: controls
+      player_commit:
+        description: Exact tested player commit on main (defaults to the dispatch commit)
+        type: string
       producer_run:
         description: Successful player Actions run with the input bundle
         type: string
@@ -51,9 +54,16 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Read locked OS revision
         id: pin
-        run: python3 -c 'import json; print("os_commit=" + json.load(open("component-lock.json"))["q2-os"])' >> "$GITHUB_OUTPUT"
+        env:
+          PLAYER_SOURCE: ${{ inputs.player_commit || github.sha }}
+        run: |
+          [[ "$PLAYER_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$PLAYER_SOURCE" "$GITHUB_SHA"
+          git show "$PLAYER_SOURCE:component-lock.json" |
+            python3 -c 'import json,sys; print("os_commit=" + json.load(sys.stdin)["q2-os"])' >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: ${{ github.repository_owner }}/q2-os
@@ -85,8 +95,10 @@ jobs:
         env:
           MODE: ${{ inputs.mode }}
           MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+          PLAYER_SOURCE: ${{ inputs.player_commit || github.sha }}
         run: |
           python3 tools/release-candidate.py --mode "$MODE" --bundle build/release-inputs \
+            --player-commit "$PLAYER_SOURCE" \
             --manifest-sha256 "$MANIFEST_SHA256" --os-repo build/release-os --out build/release-candidate
           printf 'result_sha256=%s\n' "$(sha256sum build/release-candidate/result.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       - name: Transfer verified stock payload to the draft job
@@ -119,6 +131,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RESULT_SHA256: ${{ needs.compose.outputs.result_sha256 }}
+          PLAYER_SOURCE: ${{ inputs.player_commit || github.sha }}
         run: |
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --name q2-verified-stock-candidate --dir candidate
@@ -135,7 +148,7 @@ jobs:
           assert all(re.fullmatch(pattern, result[field]) for field, pattern in fields)
           print(*(result[field] for field, _ in fields))
           ')
-          [[ "$source" == "$GITHUB_SHA" ]]
+          [[ "$source" == "$PLAYER_SOURCE" ]]
           printf '%s  verified/update.tar\n' "$package_sha" | sha256sum --check --strict
           if gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "A release or draft already exists for $version" >&2

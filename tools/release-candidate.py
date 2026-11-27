@@ -72,19 +72,31 @@ def stock_qualification(path, source, pins, record, package_sha):
     return evidence
 
 
+def trusted_player(requested, head, git):
+    source = requested or head
+    if not re.fullmatch(r'[0-9a-f]{40}', source):
+        raise ValueError('release player source must be a full commit SHA')
+    try:
+        git(ROOT, 'merge-base', '--is-ancestor', source, head)
+    except subprocess.CalledProcessError as error:
+        raise ValueError('release player source must be an ancestor of the trusted checkout') from error
+    return source, json.loads(git(ROOT, 'show', f'{source}:component-lock.json'))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mode', choices=('stock-draft', 'qemu-rehearsal'), required=True)
     for arg in ('bundle', 'os-repo', 'out'):
         parser.add_argument('--' + arg, type=Path, required=True)
     parser.add_argument('--manifest-sha256', required=True)
+    parser.add_argument('--player-commit', help='approved ancestor commit whose build will be qualified')
     args = parser.parse_args()
 
     # Only import pinned OS helpers after verify-package validates its checkout.
     import runpy
     verifier = runpy.run_path(str(VERIFIER))
-    pins = load(ROOT / 'component-lock.json')
-    source = verifier['git'](ROOT, 'rev-parse', 'HEAD')
+    head = verifier['git'](ROOT, 'rev-parse', 'HEAD')
+    source, pins = trusted_player(args.player_commit, head, verifier['git'])
     if verifier['git'](ROOT, 'status', '--porcelain'):
         raise ValueError('release needs a clean player checkout')
     bundle = args.bundle.resolve()
@@ -100,18 +112,30 @@ def main():
         if ident['bytes'] != path.stat().st_size or ident['sha256'] != record['files']['image/' + name]:
             raise ValueError(f'installed OS manifest mismatch: {name}')
 
+    args.out = args.out.resolve()
     args.out.mkdir(parents=True, exist_ok=False)
     common = ['--os-repo', args.os_repo.resolve()]
     if args.mode == 'qemu-rehearsal':
         qemu = bundle / 'qemu-system-mipsel'
         qemu.chmod(0o755)
         package = args.out / 'emulator-package' / 'update.tar'
-        subprocess.run([sys.executable, VERIFIER, 'pack', *common, '--image', image,
-                        '--version', record['version'], '--installed-version', record['installed_version'],
-                        '--out', package.parent], check=True)
+        # The maintained pack gate checks its own player's HEAD and lock.
+        # Run it at the tested source when packaging a retained ancestor build.
+        source_checkout = args.out.resolve() / 'player-source'
+        candidate_verifier = VERIFIER
+        if source != head:
+            verifier['git'](ROOT, 'worktree', 'add', '--detach', str(source_checkout), source)
+            candidate_verifier = source_checkout / 'tools/verify-package.py'
         boot = args.out / 'emulator-boot'
-        subprocess.run([sys.executable, VERIFIER, 'boot', *common, '--package', package,
-                        '--qemu', qemu, '--native-qemu', '--out', boot], check=True)
+        try:
+            subprocess.run([sys.executable, candidate_verifier, 'pack', *common, '--image', image,
+                            '--version', record['version'], '--installed-version', record['installed_version'],
+                            '--out', package.parent], check=True)
+            subprocess.run([sys.executable, candidate_verifier, 'boot', *common, '--package', package,
+                            '--qemu', qemu, '--native-qemu', '--out', boot], check=True)
+        finally:
+            if source != head:
+                verifier['git'](ROOT, 'worktree', 'remove', str(source_checkout))
         result = load(boot / 'result.json')
         if (result['update_tar_sha256'] != sha(package)
                 or result['qemu_sha256'] != record['files']['qemu-system-mipsel']

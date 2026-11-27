@@ -6,8 +6,9 @@ branch. Ordinary PRs run the generated admission controls only.
 
 ## Draft a stock candidate
 
-Build the keyless installed image with the exact player default-branch commit
-and the components selected by `component-lock.json`. Use the OS package
+Build the keyless installed image with the exact tested player commit
+on the default branch and the components selected by that revision’s
+`component-lock.json`. Use the OS package
 tool to produce the proposed `update.tar`. Check those exact package bytes on
 a physical Shanling Q2 starting with supported stock firmware, including stock
 installation, generated local playback and recovery. Record the conditions,
@@ -36,7 +37,10 @@ all six payload paths to their SHA-256. The starting firmware must match the
 qualification record. Preserve the input artifact while reviewing the draft.
 
 Dispatch `stock-draft` with that producer run ID and the SHA-256 of
-`release-inputs.json`. The workflow reads the locked OS package format, checks
+`release-inputs.json`. Supply the tested player commit when it differs from the
+workflow dispatch commit. The workflow checks that it is on the default-branch
+history and uses its own component lock, so workflow-only changes do not force
+rebuilding a previously tested candidate. It reads the locked OS package format, checks
 the image provenance and keyless contents, recreates and reads back the
 stock package, and requires its SHA-256 to match the actual stock test.
 The draft job rechecks the verified bytes before attaching them. The summary
