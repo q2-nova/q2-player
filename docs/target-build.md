@@ -115,8 +115,7 @@ Their stall fields (`thread`, `task`, `poll`, `frames`, `stack_status`)
 keep their empty values, so the report schema is unchanged.
 
 Build it with `--emulator-diagnostics`, which enables the q2nd Cargo feature
-`stall-sampler`. Only this build accepts `--unwinder` with a target
-libunwind install prefix, which adds stacks to the sampler's reports:
+`stall-sampler`:
 
 ```sh
 python3 tools/build-target.py \
@@ -124,9 +123,16 @@ python3 tools/build-target.py \
   --toolchain-repo Q2_TOOLCHAIN_CHECKOUT \
   --compiler-work X2000_COMPILER_WORK \
   --os-repo Q2_OS_CHECKOUT \
-  --emulator-diagnostics --unwinder LIBUNWIND_PREFIX \
+  --emulator-diagnostics \
   --out build/target-player-diagnostic
 ```
+
+Its stall reports carry the runtime, thread, task, poll and elapsed time,
+with `stack_status` `unavailable` and no frames. Only this build accepts
+`--unwinder PREFIX`, which adds the stack frames. PREFIX is a static
+libunwind built for the target with the SDK's GCC, with
+`include/libunwind.h` and `lib/libunwind.a`; this repository does not build
+one.
 
 Its `result.json` has `profile` `emulator-diagnostic` and `release_eligible`
 `false`. The q2nd executable contains the text
