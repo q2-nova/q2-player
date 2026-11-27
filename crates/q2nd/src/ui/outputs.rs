@@ -370,8 +370,8 @@ mod app_tests {
         let changes = app.outputs.sync(Some(&output), 40);
         app.apply_output_changes(changes);
         assert_eq!((volumes(&drain(&commands)), app.output_volume(), app.volume_shown.is_some()), (vec![70], 70, true));
-        // A headset volume key steps the same volume.
-        app.handle(UiMsg::Input(crate::input::Raw::Media(crate::input::Media::VolumeDown)), &mut platform);
+        // A volume key of these headphones steps the same volume.
+        app.handle(UiMsg::Input(crate::input::Raw::Media(crate::input::Media::Volume { addr: [7; 6], up: false })), &mut platform);
         assert_eq!((volumes(&drain(&commands)), app.config.playback.volume), (vec![70 - KEY_STEP as u8], 40));
         // The device's profile, matched automatically, is applied.
         let token = app.outputs.token;
@@ -386,8 +386,8 @@ mod app_tests {
         let sent = drain(&commands);
         assert_eq!((remote(&sent), volumes(&sent)), (vec![false], vec![40]));
         assert_eq!(eqs(&sent).pop().unwrap(), app.config.playback.eq);
-        // A headset key with no Bluetooth output (a wired remote): the jack's volume.
-        app.handle(UiMsg::Input(crate::input::Raw::Media(crate::input::Media::VolumeUp)), &mut platform);
-        assert_eq!((volumes(&drain(&commands)), app.config.playback.volume), (vec![40 + KEY_STEP as u8], 40 + KEY_STEP as u8));
+        // A headphone volume key with no Bluetooth output open: nothing, the jack keeps its volume.
+        app.handle(UiMsg::Input(crate::input::Raw::Media(crate::input::Media::Volume { addr: [7; 6], up: true })), &mut platform);
+        assert_eq!((volumes(&drain(&commands)), app.config.playback.volume), (vec![], 40));
     }
 }

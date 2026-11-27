@@ -42,9 +42,26 @@ pub enum Media {
     PlayPause,
     Next,
     Prev,
-    /// The headset's volume keys: one step of the player's volume.
-    VolumeUp,
-    VolumeDown,
+    /// A volume key of the Bluetooth headphones at `addr`: one step of their volume.
+    Volume { addr: q2_bt::host::Addr, up: bool },
+}
+
+impl Media {
+    /// A button of the Bluetooth headphones at `addr`.
+    pub fn from_bluetooth(addr: q2_bt::host::Addr, button: crate::bluetooth::Button) -> Self {
+        use crate::bluetooth::Button;
+        match button {
+            Button::Play | Button::Pause | Button::Stop => Media::PlayPause,
+            Button::Next => Media::Next,
+            Button::Previous => Media::Prev,
+            Button::VolumeUp => Media::Volume { addr, up: true },
+            Button::VolumeDown => Media::Volume { addr, up: false },
+        }
+    }
+    /// The flight-recorder code.
+    pub fn code(self) -> u32 {
+        match self { Media::PlayPause => 0, Media::Next => 1, Media::Prev => 2, Media::Volume { up: true, .. } => 3, Media::Volume { up: false, .. } => 4 }
+    }
 }
 
 /// What screens receive.

@@ -48,12 +48,15 @@ pub struct Headphones {
     pub stalls_pairing: bool,
     /// As initiator after a reconnect, configures SBC whatever else it has (as some headphones do).
     pub configures_sbc: bool,
+    /// As initiator after a reconnect, answers none of the source's stream signalling once
+    /// its own stream is set up: the source's probe of its endpoints waits out its 4 s.
+    pub ignores_probe: bool,
 }
 impl Headphones {
     pub fn new(last: u8, name: &str) -> Self {
         Self { addr: [last, 0x22, 0x33, 0x44, 0x55, 0x66], name: name.into(), named_in_inquiry: true, pairing_mode: true, simple_pairing: true,
             key: None, sbc: [0x3f, 0xff, 2, 53], codecs: Vec::new(), media_mtu: 895, starts_stream: false, powered: true,
-            class: 0x24_0404, sdp_sink: true, eir_uuids: Vec::new(), absolute_volume: false, volume: 0x20, volume_steps: None, echo_volume: false, device_id: None, stalls_pairing: false, configures_sbc: false }
+            class: 0x24_0404, sdp_sink: true, eir_uuids: Vec::new(), absolute_volume: false, volume: 0x20, volume_steps: None, echo_volume: false, device_id: None, stalls_pairing: false, configures_sbc: false, ignores_probe: false }
     }
     /// A desktop computer (major class computer, minor desktop) that takes audio:
     /// an A2DP sink in its SDP records, nothing in its inquiry response but its name.
@@ -631,6 +634,7 @@ impl Fake {
         let Some(link) = &mut self.link else { return };
         let device = &self.devices[link.device];
         let (label, kind, signal, body) = (packet[0] >> 4, packet[0] & 3, packet[1] & 0x3f, &packet[2..]);
+        if kind == 0 && device.ignores_probe && link.initiator && link.step >= 5 { return }
         if kind == 0 {
             let accept = label << 4 | 2;
             let mut response = vec![accept, signal];

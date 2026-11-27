@@ -594,11 +594,8 @@ fn main() {
     if let Some(outputs) = &outputs { bluetooth.set_output(outputs.bluetooth_switch()); }
     {
         let tx = Mutex::new(tx.clone());
-        bluetooth.set_buttons(Arc::new(move |button| {
-            use bluetooth::Button;
-            let media = match button { Button::Play | Button::Pause | Button::Stop => input::Media::PlayPause, Button::Next => input::Media::Next, Button::Previous => input::Media::Prev,
-                Button::VolumeUp => input::Media::VolumeUp, Button::VolumeDown => input::Media::VolumeDown };
-            let _ = tx.lock().unwrap().send(UiMsg::Input(input::Raw::Media(media)));
+        bluetooth.set_buttons(Arc::new(move |(addr, button)| {
+            let _ = tx.lock().unwrap().send(UiMsg::Input(input::Raw::Media(input::Media::from_bluetooth(addr, button))));
         }));
     }
     bluetooth.set_volume_limit(config.playback.max_volume);

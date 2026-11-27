@@ -270,7 +270,7 @@ fn input_code(raw: &Raw) -> u32 {
         Raw::WheelEnd => 0x500,
         Raw::Touch { .. } => 0x700,
         Raw::TouchUnavailable { .. } => 0x701,
-        Raw::Media(media) => 0x600 | *media as u32,
+        Raw::Media(media) => 0x600 | media.code(),
     }
 }
 
@@ -1311,9 +1311,12 @@ impl App {
                 crate::input::Media::PlayPause => Event::PlayPause,
                 crate::input::Media::Next => Event::Next,
                 crate::input::Media::Prev => Event::Prev,
-                // The headset's volume keys step the volume; the screen stays as it is.
-                crate::input::Media::VolumeUp | crate::input::Media::VolumeDown => {
-                    self.change_volume(if m == crate::input::Media::VolumeUp { outputs::KEY_STEP } else { -outputs::KEY_STEP });
+                // A headphone volume key steps the volume of the headphones it came from, never the
+                // jack's; the screen stays as it is.
+                crate::input::Media::Volume { addr, up } => {
+                    if self.outputs.bluetooth.as_ref().is_some_and(|b| b.addr == addr) {
+                        self.change_volume(if up { outputs::KEY_STEP } else { -outputs::KEY_STEP });
+                    }
                     return;
                 }
             }),

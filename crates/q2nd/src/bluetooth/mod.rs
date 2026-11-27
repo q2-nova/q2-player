@@ -35,6 +35,8 @@ pub fn to_level(volume: u8) -> u8 { ((u32::from(volume.min(100)) * 127 + 50) / 1
 pub fn from_level(level: u8) -> u8 { ((u32::from(level.min(127)) * 100 + 63) / 127) as u8 }
 /// How long after the last volume change the store is written.
 const VOLUME_SAVE_DELAY: Duration = Duration::from_secs(2);
+/// Volume keys held for headphones whose stream has not opened: more than the 0..=100 range in steps.
+const HELD_KEYS: usize = 32;
 
 /// How a device's headphone EQ profile was picked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,6 +130,9 @@ pub struct Options {
     /// Drops and raises the fake controller's enable: it returns to its ROM.
     #[cfg(test)]
     pub(crate) fake_power_cycle: Arc<AtomicBool>,
+    /// The fake's first headphones page the player they are bonded to, once.
+    #[cfg(test)]
+    pub(crate) fake_reconnect: Arc<AtomicBool>,
     /// UART settings (rate, flow control) at which the fake's line carries garbage.
     #[cfg(test)]
     pub(crate) fake_uart_broken: Option<fn(u32, bool) -> bool>,
@@ -166,7 +171,7 @@ impl Options {
             power_hold: Some("/sys/devices/platform/bt-power/state".into()), reconnect: true, bench_peer: None,
             codecs: codecs(&config.codec), ldac: ldac_quality(&config.ldac_quality), ldac_adaptive: config.ldac_adaptive,
             uart_auto: config.uart_mode != "manual", uart_fallback: true, resync: config.resync_after_wifi, status_file: (config.device != "fake").then(|| STATUS_FILE.into()),
-            #[cfg(test)] fake_off: Arc::default(), #[cfg(test)] fake_keys: Arc::default(), #[cfg(test)] fake_power_cycle: Arc::default(), #[cfg(test)] fake_setup: None,
+            #[cfg(test)] fake_off: Arc::default(), #[cfg(test)] fake_keys: Arc::default(), #[cfg(test)] fake_power_cycle: Arc::default(), #[cfg(test)] fake_reconnect: Arc::default(), #[cfg(test)] fake_setup: None,
             #[cfg(test)] fake_uart_broken: None, #[cfg(test)] fake_uart_accepts: None, #[cfg(test)] fake_kept: None }
     }
     /// The handle a UI holds before main supplies the configured one.
@@ -175,7 +180,7 @@ impl Options {
         Self { port: Port::Fake, baud: 1_500_000, flow: false, firmware_dirs: Vec::new(), store: data.join("bluetooth/devices"), name: "Q2".into(),
             power_hold: None, reconnect: true, bench_peer: None, codecs: Kind::AUTOMATIC.to_vec(), ldac: coder::LdacQuality::Standard, ldac_adaptive: true, uart_auto: false,
             uart_fallback: true, resync: true, status_file: None,
-            #[cfg(test)] fake_off: Arc::default(), #[cfg(test)] fake_keys: Arc::default(), #[cfg(test)] fake_power_cycle: Arc::default(), #[cfg(test)] fake_setup: None,
+            #[cfg(test)] fake_off: Arc::default(), #[cfg(test)] fake_keys: Arc::default(), #[cfg(test)] fake_power_cycle: Arc::default(), #[cfg(test)] fake_reconnect: Arc::default(), #[cfg(test)] fake_setup: None,
             #[cfg(test)] fake_uart_broken: None, #[cfg(test)] fake_uart_accepts: None, #[cfg(test)] fake_kept: None }
     }
 }
@@ -508,7 +513,8 @@ struct Shared {
     notify: Arc<dyn Fn() + Send + Sync>,
     /// Told whether a stream is open, so the player routes to it.
     output: Mutex<Option<Callback<bool>>>,
-    buttons: Mutex<Option<Callback<Button>>>,
+    /// Told of each button pressed on the linked headphones, with their address.
+    buttons: Mutex<Option<Callback<(Addr, Button)>>>,
     /// A preference chosen in Settings after start; replaces the configured one for later sessions too.
     codecs: Mutex<Option<Vec<Kind>>>,
     endpoint: Arc<pcm::Endpoint>,
@@ -603,7 +609,10 @@ impl Bluetooth {
     }
     pub fn state(&self) -> State { self.shared.state.lock().unwrap().clone() }
     pub fn set_output(&self, output: Callback<bool>) { *self.shared.output.lock().unwrap() = Some(output); }
-    pub fn set_buttons(&self, buttons: Callback<Button>) { *self.shared.buttons.lock().unwrap() = Some(buttons); }
+    /// Buttons pressed on the linked headphones, with their address. A volume key pressed before
+    /// their stream opens is held and passed on once it opens; it is dropped if the link or the
+    /// stream setup ends first.
+    pub fn set_buttons(&self, buttons: Callback<(Addr, Button)>) { *self.shared.buttons.lock().unwrap() = Some(buttons); }
     /// Whether music is playing, for the headphones' status queries.
     pub fn set_playing(&self, playing: bool) { if self.shared.playing.swap(playing, Ordering::Relaxed) != playing { self.wake(); } }
 
@@ -817,10 +826,11 @@ struct FakeWire { from_fake: PipeReader, to_fake: PipeWriter, pending: Vec<u8>, 
 
 /// The fake controller's thread.
 /// Test hooks of the fake: its first headphones' power switch, presses of their volume-up
-/// key asked for, a controller power cycle, a setup, UART settings whose line carries garbage,
-/// the rates the port takes, a controller kept from the bring-up before (tests only).
+/// key asked for, a controller power cycle, a page from those headphones, a setup, UART
+/// settings whose line carries garbage, the rates the port takes, a controller kept from the
+/// bring-up before (tests only).
 #[derive(Default)]
-struct FakeHooks { off: Arc<AtomicBool>, keys: Arc<AtomicU32>, power: Arc<AtomicBool>, setup: Option<fn(&mut q2_bt::fake::Fake)>,
+struct FakeHooks { off: Arc<AtomicBool>, keys: Arc<AtomicU32>, power: Arc<AtomicBool>, reconnect: Arc<AtomicBool>, setup: Option<fn(&mut q2_bt::fake::Fake)>,
     uart_broken: Option<fn(u32, bool) -> bool>, uart_accepts: Option<fn(u32) -> bool>,
     #[cfg(test)] kept: Option<KeptFake> }
 
@@ -871,6 +881,7 @@ fn fake_loop(blocking: &Blocking, from_host: &PipeReader, to_host: &PipeWriter, 
         if let Some(kept) = &hooks.kept { kept.volume_sets.store(fake.log.volumes_set.len() as u32, Ordering::Release); }
         if hooks.keys.load(Ordering::Acquire) > pressed && fake.volume_button(true) { pressed += 1; }
         if hooks.power.swap(false, Ordering::AcqRel) { fake.power_cycle(now); }
+        if hooks.reconnect.load(Ordering::Acquire) && fake.reconnect(0) { hooks.reconnect.store(false, Ordering::Release); }
         let mut wire = Vec::new();
         fake.poll(now, &mut wire);
         for chunk in wire.chunks(4096) { if (&*to_host).write_all(&frame(fake.tx_baud(), chunk)).is_err() { return } }
@@ -933,7 +944,7 @@ fn open(blocking: &Blocking, options: &Options) -> Result<(Box<dyn Wire>, Option
         Port::Absent => Err("Bluetooth is not available here".into()),
         Port::Fake => {
             #[cfg(test)]
-            let hooks = FakeHooks { off: options.fake_off.clone(), keys: options.fake_keys.clone(), power: options.fake_power_cycle.clone(), setup: options.fake_setup,
+            let hooks = FakeHooks { off: options.fake_off.clone(), keys: options.fake_keys.clone(), power: options.fake_power_cycle.clone(), reconnect: options.fake_reconnect.clone(), setup: options.fake_setup,
                 uart_broken: options.fake_uart_broken, uart_accepts: options.fake_uart_accepts, kept: options.fake_kept.clone() };
             #[cfg(not(test))]
             let hooks = FakeHooks::default();
@@ -1053,6 +1064,9 @@ fn run(blocking: &Blocking, session: &Session, options: &Options, woken: &PipeRe
     let mut save_at: Option<Instant> = None;
     // The address of the encrypted link, as `State::connected` has it.
     let mut linked: Option<Addr> = None;
+    // Volume keys of the linked headphones pressed before their stream opened. Until it opens the
+    // player's volume is the jack's, so they wait for the stream.
+    let mut held_keys: Vec<Button> = Vec::new();
     let save = |store: &Store| if let Err(error) = store.save(blocking, &options.store) { log::warn!("Bluetooth: paired devices not saved: {error}"); };
     let mut telemetry = telemetry::Telemetry::new(options.baud, options.flow, options.ldac_adaptive, shared.uart_fallbacks.load(Ordering::Relaxed));
     // Start-up commands run again after a Wi-Fi power-up: the Ready that follows does not reconnect.
@@ -1309,6 +1323,7 @@ fn run(blocking: &Blocking, session: &Session, options: &Options, woken: &PipeRe
                 Event::Connected { addr, .. } => {
                     user_connect = None;
                     linked = Some(addr);
+                    held_keys.clear();
                     amplifier = Amplifier::default();
                     if let Some(volume) = store.saved(addr).volume {
                         let volume = volume.min(limit());
@@ -1350,6 +1365,7 @@ fn run(blocking: &Blocking, session: &Session, options: &Options, woken: &PipeRe
                     media = None;
                     amplifier = Amplifier::default();
                     linked = None;
+                    held_keys.clear();
                     shared.output(false);
                     // The time it was last seen, with any volume change not yet written.
                     let paired = store.devices.iter().any(|d| d.addr == addr);
@@ -1376,8 +1392,12 @@ fn run(blocking: &Blocking, session: &Session, options: &Options, woken: &PipeRe
                             let addr = linked;
                             let output = addr.and_then(|addr| store.devices.iter().find(|d| d.addr == addr)).map(|device| Output {
                                 addr: device.addr, name: device.name.clone(), class: device.class, saved: store.saved(device.addr), volume_revision: shared.next_volume_revision(), absolute: amplifier.remote });
+                            let open = output.as_ref().map(|o| o.addr);
                             session.update(|state| { state.stream = Some(stream); state.output = output; state.codec_reason = reason; });
                             shared.output(true);
+                            // After the state that names the output, so the UI routes them to it.
+                            let (held, buttons) = (std::mem::take(&mut held_keys), shared.buttons.lock().unwrap().clone());
+                            if let (Some(addr), Some(buttons)) = (open, buttons) { for button in held { buttons((addr, button)); } }
                         }
                         Err(error) => {
                             // The encoder for a codec we offered did not start: end the link rather than play silence.
@@ -1389,6 +1409,7 @@ fn run(blocking: &Blocking, session: &Session, options: &Options, woken: &PipeRe
                 }
                 Event::Stream(None) => {
                     media = None;
+                    held_keys.clear();
                     shared.output(false);
                     session.update(|state| {
                         state.output = None;
@@ -1424,11 +1445,17 @@ fn run(blocking: &Blocking, session: &Session, options: &Options, woken: &PipeRe
                     session.update(|state| if let Some(output) = state.output.as_mut().filter(|o| o.addr == addr) { output.saved.id = Some(id); });
                 }
                 Event::Button(button) => {
+                    let Some(addr) = linked else { continue };
+                    // A volume key before the stream opens is for these headphones, not the jack the player still uses.
+                    if matches!(button, Button::VolumeUp | Button::VolumeDown) && media.is_none() {
+                        if held_keys.len() < HELD_KEYS { held_keys.push(button); }
+                        continue;
+                    }
                     // Play while playing and pause while paused are stale presses, not toggles; volume keys go to the player's volume.
                     let playing = shared.playing.load(Ordering::Relaxed);
                     let stale = matches!((button, playing), (Button::Play, true) | (Button::Pause | Button::Stop, false));
                     let buttons = shared.buttons.lock().unwrap().clone();
-                    if let Some(buttons) = buttons.filter(|_| !stale) { buttons(button); }
+                    if let Some(buttons) = buttons.filter(|_| !stale) { buttons((addr, button)); }
                 }
             }
         }

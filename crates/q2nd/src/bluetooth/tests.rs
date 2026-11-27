@@ -38,7 +38,7 @@ fn fixture_setup(name: &str, codec: &str, setup: Option<fn(&mut q2_bt::fake::Fak
     let bluetooth = Bluetooth::with_endpoint(options, Arc::new(move || { counter.fetch_add(1, Ordering::Relaxed); }), endpoint.clone());
     let (route, buttons) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     { let route = route.clone(); bluetooth.set_output(Arc::new(move |open| route.lock().unwrap().push(open))); }
-    { let buttons = buttons.clone(); bluetooth.set_buttons(Arc::new(move |button| buttons.lock().unwrap().push(button))); }
+    { let buttons = buttons.clone(); bluetooth.set_buttons(Arc::new(move |(_, button)| buttons.lock().unwrap().push(button))); }
     Fixture { bluetooth, endpoint, route, buttons, notified, store, off, keys, power_cycle, status, _dir: dir }
 }
 
@@ -872,4 +872,69 @@ fn the_codec_and_why_it_was_chosen_are_published() {
     assert_eq!(codec_reason(None, Kind::Sbc, &codecs("ldac")), "The headphones lack LDAC");
     assert_eq!(codec_reason(Some(q2_bt::host::Origin::Upgraded { from: Kind::Sbc }), Kind::Aac, &codecs("auto")), "Changed from SBC, which the headphones chose");
     assert_eq!(codec_reason(Some(q2_bt::host::Origin::Theirs { checked: true }), Kind::Sbc, &codecs("auto")), "Chosen by the headphones; nothing better in common");
+}
+
+/// The UI against the Bluetooth thread, its notices and buttons on one channel in the order
+/// the thread sends them, as `main` delivers them.
+fn pump(app: &mut crate::ui::App, rx: &std::sync::mpsc::Receiver<crate::ui::UiMsg>, what: &str, done: impl Fn(&crate::ui::App) -> bool) {
+    let mut platform = crate::platform::Headless { last: None };
+    let limit = Instant::now() + Duration::from_secs(20);
+    while !done(app) {
+        assert!(Instant::now() < limit, "{what}: {:?}", app.bluetooth.state().link);
+        if let Ok(message) = rx.recv_timeout(Duration::from_millis(5)) { app.handle(message, &mut platform); }
+    }
+}
+
+#[test]
+fn a_volume_key_pressed_before_the_stream_opens_steps_those_headphones_and_never_the_jack() {
+    use crate::audio::player::{Cmd, PlayerHandle, Status};
+    use crate::input::{Media, Raw};
+    use crate::ui::UiMsg;
+    let dir = tempdir::Dir::new("key-before-stream");
+    let mut options = Options::simulated(&dir.0);
+    options.codecs = codecs("auto");
+    // Headphones without absolute volume (their keys are pass-through presses) that, when they
+    // page the player themselves, set up SBC and then let the player's probe of their endpoints
+    // for a better codec wait out its 4 s: their control channel is open and the stream is not
+    // yet reported.
+    options.fake_setup = Some(|fake| {
+        let headphones = &mut fake.devices[0];
+        (headphones.absolute_volume, headphones.configures_sbc, headphones.ignores_probe) = (false, true, true);
+    });
+    let (keys, reconnect) = (options.fake_keys.clone(), options.fake_reconnect.clone());
+    let (tx, rx) = std::sync::mpsc::channel::<UiMsg>();
+    let notify = tx.clone();
+    let bluetooth = Bluetooth::with_endpoint(options, Arc::new(move || { let _ = notify.send(UiMsg::Bluetooth); }), Arc::new(pcm::Endpoint::new()));
+    bluetooth.set_buttons(Arc::new(move |(addr, button)| { let _ = tx.send(UiMsg::Input(Raw::Media(Media::from_bluetooth(addr, button)))); }));
+    let mut app = crate::ui::settings_tests::fixture();
+    app.player.shutdown();
+    let (player, commands) = PlayerHandle::fixture(Status::default());
+    app.player = player;
+    app.config.playback.volume = 40;
+    app.bluetooth = bluetooth;
+    let state = |app: &crate::ui::App| app.bluetooth.state();
+    // Paired and played to once, then disconnected: the jack again, at its own volume.
+    app.bluetooth.set_enabled(true);
+    pump(&mut app, &rx, "ready", |app| state(app).phase == Phase::Ready);
+    app.bluetooth.scan();
+    pump(&mut app, &rx, "scan", |app| { let s = state(app); !s.scanning && s.found.len() == 3 && s.found.iter().all(|d| d.name != "Unnamed Device") });
+    let addr = state(&app).found[0].addr;
+    app.bluetooth.connect(addr);
+    pump(&mut app, &rx, "stream", |app| state(app).output.is_some());
+    app.bluetooth.disconnect();
+    pump(&mut app, &rx, "disconnected", |app| { let s = state(app); s.link == Link::Idle && s.output.is_none() });
+    let volumes = || commands.try_iter().filter_map(|c| if let Cmd::SetVolume(v) = c { Some(v) } else { None }).collect::<Vec<_>>();
+    assert_eq!(volumes().last(), Some(&40));
+    // They page the player and press volume up as soon as their control channel is open.
+    keys.fetch_add(1, Ordering::AcqRel);
+    reconnect.store(true, Ordering::Release);
+    pump(&mut app, &rx, "linked", |app| state(app).connected() == Some(addr));
+    let probing = Instant::now() + Duration::from_secs(1);
+    pump(&mut app, &rx, "the press, during the probe", |_| Instant::now() >= probing);
+    assert!(state(&app).output.is_none(), "the stream is not reported during the probe");
+    assert_eq!((volumes(), app.config.playback.volume), (vec![], 40), "the press does not reach the jack");
+    // The stream opens: the press steps these headphones' volume, from the jack's capped at 60.
+    pump(&mut app, &rx, "stream after the probe", |app| state(app).output.as_ref().is_some_and(|o| o.saved.volume == Some(44)));
+    assert_eq!(app.config.playback.volume, 40);
+    app.bluetooth.shutdown();
 }

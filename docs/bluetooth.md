@@ -346,10 +346,14 @@ volume survives the round trip.
   after the last change and when the link drops. A new device starts at the
   jack's volume capped at 60, or at the headphones' level when they take
   absolute volume. Addresses are not logged.
-
-A pass-through volume key that arrives before the stream opens can reach
-the jack, because the generic media input it becomes in `main.rs` does not
-carry the Bluetooth address.
+- **Keys before the stream opens.** A pass-through volume key carries the
+  headphones' address to the player and steps only that device's volume. A
+  key pressed while their stream is not yet open (headphones that reconnect
+  themselves can press before the player has checked their codecs) is held
+  and applied when the stream opens, and dropped if the link or the stream
+  setup ends first. A headphone key never changes the jack's volume. A level
+  that headphones with absolute volume report before the stream opens is
+  saved for that device.
 
 ## Headphone EQ per output
 
