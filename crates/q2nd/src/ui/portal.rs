@@ -686,7 +686,7 @@ mod tests {
     // Run the exact test binary in the isolated venue. There the helper and
     // generated supplicant status occupy their production paths.
     #[test]
-    #[ignore = "requires tests/perf/portal_guest_journey.py"]
+    #[ignore = "run inside its generated venue: tests/portal/run.py --only guest-boingo"]
     fn generated_guest_supervisor_fixture() {
         const WPA_STATUS: &str = "/fixture/wpa-status/current";
         let runner = tokio::runtime::Builder::new_current_thread()
@@ -792,7 +792,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires the isolated generated wheel and TLS venue"]
+    #[ignore = "run inside its generated venue: tests/portal/run.py --only wheel-supervisor"]
     fn generated_wheel_login_supervisor_fixture() {
         use std::{fs, path::Path, thread};
         let scope = Path::new("/fixture/lifecycle");

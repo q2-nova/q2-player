@@ -1,0 +1,79 @@
+name: Portal sign-in journeys
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/portal-journeys.yml'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'component-lock.json'
+      - 'rust-toolchain.toml'
+      - 'crates/**'
+      - 'tests/portal/**'
+
+permissions:
+  contents: read
+
+jobs:
+  journeys:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Select the locked q2-os revision
+        id: os
+        env:
+          COMPONENTS_OWNER: ${{ vars.Q2_COMPONENTS_OWNER || 'q2-nova' }}
+        run: |
+          commit=$(jq -er '."q2-os"' component-lock.json)
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$COMPONENTS_OWNER" =~ ^[A-Za-z0-9-]+$ ]]
+          printf 'commit=%s\nrepository=%s/q2-os\n' "$commit" "$COMPONENTS_OWNER" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ steps.os.outputs.repository }}
+          ref: ${{ steps.os.outputs.commit }}
+          path: build/q2-os
+          persist-credentials: false
+      - name: Install the sandbox
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor.
+          # The journeys need one for their private network.
+          if test -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --unshare-user --unshare-net --ro-bind / / true
+      - name: Run the generated journeys
+        env:
+          CARGO_BUILD_JOBS: '2'
+        run: |
+          mkdir -p build/ci-cargo-home
+          CARGO_HOME="$PWD/build/ci-cargo-home" python3 tests/portal/run.py \
+            --out build/portal-journeys --os-repo build/q2-os
+      - name: Summarize journeys
+        if: always()
+        run: |
+          if test -f build/portal-journeys/summary.md; then
+            cat build/portal-journeys/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Show journey diagnostics
+        if: failure()
+        run: |
+          tail -n 60 build/portal-journeys/build.log || true
+          for log in build/portal-journeys/*/run.log; do
+            echo "== $log"
+            tail -n 120 "$log"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: failure()
+        with:
+          name: portal-journeys
+          path: |
+            build/portal-journeys/
+            !build/portal-journeys/helpers/fixture-source/
+          if-no-files-found: ignore

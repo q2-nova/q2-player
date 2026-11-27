@@ -57,3 +57,25 @@ password = "q2test"
 and `q2nd --headless --data build/run --script FILE` (see `q2nd --help` for
 the script's steps), or the simulator window without `--headless`. Stopping
 the container (`podman stop q2nd-navidrome`) mid-way tests offline use.
+
+## Wi-Fi sign-in journeys
+
+```sh
+python3 tests/portal/run.py --out build/portal-journeys --os-repo ../q2-os
+```
+
+The command builds `q2-portal` and the `q2nd` tests with two jobs, generates a
+TLS root and venue certificate, and runs seven journeys on generated guest and
+Delta venues inside an unprivileged bubblewrap sandbox with its own network.
+They cover helper detection and consent, Delta sign-in with trusted and
+untrusted certificates, video-page admission, the player supervisor, and the
+App's Wi-Fi screen with wheel and phone entry followed by an uncached stream.
+The phone journey uses the access-point watcher and stand-in radio tools from a
+q2-os checkout; without `--os-repo` it is skipped. The Delta journeys use a
+copy of the helper whose only source change trusts the generated root; the
+build refuses any other difference. Results are in
+`build/portal-journeys/result.json`. The script's help lists each journey;
+`--only NAME` runs one.
+
+Bubblewrap needs unprivileged user namespaces. On Ubuntu 24.04, allow them with
+`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`.

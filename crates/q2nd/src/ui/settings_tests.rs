@@ -2826,7 +2826,7 @@ fn wait_for_generated_player(
 }
 
 #[test]
-#[ignore = "requires a private generated supplicant, lease and Delta TLS venue"]
+#[ignore = "run inside its generated venue: tests/portal/run.py --only app-wheel --only app-phone"]
 fn generated_delta_wheel_app_journey() {
     use super::portal::{Portal, State};
     let mut app = fixture();
