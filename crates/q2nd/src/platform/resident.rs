@@ -2,8 +2,8 @@
 //!
 //! The root filesystem is xz squashfs in 128 KiB blocks, so an evicted code
 //! page costs a whole block's decompression when it is next run. Under memory
-//! pressure the V0.108 device refaulted about 95 code pages per Shuffle Songs,
-//! and every thread stalled for 260–370 ms at random points (formatting, MD5,
+//! pressure an unpinned player refaulted about 95 code pages per Shuffle Songs
+//! on the Q2, and every thread stalled for 260–370 ms at random points (formatting, MD5,
 //! FLAC probing, list drawing). Pinning the executable and its libraries
 //! (about 18 MiB, 12 MiB of it resident anyway) removes those refaults.
 //! Code that only the `--bench` and `--script` modes run is linked into its
@@ -18,13 +18,15 @@
 /// Sections of the executable left out of the locked set: the code that only
 /// `--bench` (`perf`) and `--script` run, gathered by `link/q2tools.ld`.
 const TOOLS_SECTIONS: &[&str] = &[".q2tools"];
-/// The unwind tables. Only the stall sampler's unwinder reads them
-/// (vendor/diagnostics/stall.c, in the stalled thread's signal handler), and
-/// std's panic backtrace when `RUST_BACKTRACE` is set. Left unlocked, a stall
-/// sample may first fault their pages back in from the squashfs root.
+/// The unwind tables. std's panic backtrace reads them when `RUST_BACKTRACE`
+/// is set. Release builds link no unwinder; the emulator diagnostic build's
+/// stall sampler (feature `stall-sampler`, vendor/diagnostics/stall.c) also
+/// reads them, in the stalled thread's signal handler. Left unlocked, a
+/// backtrace or stall sample may first fault their pages back in from the
+/// squashfs root.
 const UNWIND_SECTIONS: &[&str] = &[".eh_frame_hdr", ".eh_frame"];
 /// Whether the unwind tables stay locked: yes, unless the build sets
-/// `--cfg q2_unlock_unwind_tables` (size experiment, 2026-11-20).
+/// `--cfg q2_unlock_unwind_tables`, which tools/locked_size.py also models.
 const LOCK_UNWIND_TABLES: bool = !cfg!(q2_unlock_unwind_tables);
 /// Alignment of the ranges left unlocked. mlock rounds outward to the kernel's
 /// pages, so a kernel with larger pages only locks more at each edge.

@@ -1,5 +1,5 @@
 //! Host measurement of both library syncs through `tests/perf/sync_host_measure.py`,
-//! a local proxy that holds the real server's credentials and counts requests
+//! a local proxy that holds the server's credentials and counts requests
 //! and bytes. Ignored: the tool runs it. Prints numbers only (no names, no
 //! ids); the card database it fills is deleted at the end.
 use crate::config::{Config, Paths};

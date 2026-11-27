@@ -155,7 +155,7 @@ fn backoff(failures: u32) -> Duration {
     RETRY.saturating_mul(1 << failures.min(8)).min(FRESHNESS)
 }
 
-/// Device measurement (`tests/perf/sync_device_measure.py`): a file
+/// Device measurement trigger: a file
 /// `sync-now` in the data folder, read and removed at start. A line `abs`
 /// syncs Audiobookshelf now, ignoring a complete sync within freshness; a
 /// line `abs-full` does so without ETags (every page fetched whole); a

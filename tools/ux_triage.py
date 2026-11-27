@@ -7,9 +7,12 @@ latency summaries for the journey distributions. `detail` hashes are mapped back
 to string literals found in the Rust sources (FNV-1a over non-digit bytes, as in
 `ux::text_hash`). Read-only; never writes the receiver store.
 
-  python3 tools/ux_triage.py                       # live production store
-  python3 tools/ux_triage.py --store PATH --since-hours 6 --boot latest
-  python3 tools/ux_triage.py --memory --boot latest  # memory-pressure samples
+  python3 tools/ux_triage.py --store RECEIVER_OUT/production/reports.sqlite
+  python3 tools/ux_triage.py --store STORE --since-hours 6 --boot latest
+  python3 tools/ux_triage.py --store STORE --memory --boot latest  # memory-pressure samples
+
+STORE is a `reports.sqlite` under the --out directory of
+tools/diagnostic_receiver.py.
 """
 import argparse
 import collections
@@ -20,7 +23,6 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_STORE = ROOT / "build/diagnostic-receiver-v2-live-01/production/reports.sqlite"
 
 # Keep in step with crates/q2nd/src/ux.rs.
 CODES = {1: "unknown", 10: "offline", 11: "network-unreachable", 12: "navidrome-unreachable", 13: "abs-unreachable",
@@ -242,7 +244,7 @@ def summarize(sketch):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--store", type=Path, default=DEFAULT_STORE)
+    parser.add_argument("--store", type=Path, required=True, help="a receiver reports.sqlite")
     parser.add_argument("--boot", help="boot UUID prefix, or 'latest'")
     parser.add_argument("--history", type=int, default=20, help="flight-recorder entries to show per incident")
     parser.add_argument("--memory", action="store_true", help="print the memory-pressure samples instead")

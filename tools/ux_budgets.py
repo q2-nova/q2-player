@@ -7,8 +7,11 @@ receiver (read-only), compares the configured quantile with
 its target. `--ratchet` lowers a target to measured × headroom when that is
 below the current target, and records the change; targets never rise.
 
-  python3 tools/ux_budgets.py                      # latest build
-  python3 tools/ux_budgets.py --build 5a734f41 --ratchet
+  python3 tools/ux_budgets.py --store RECEIVER_OUT/production/reports.sqlite   # latest build
+  python3 tools/ux_budgets.py --store STORE --build 5a734f41 --ratchet
+
+STORE is a `reports.sqlite` under the --out directory of
+tools/diagnostic_receiver.py.
 """
 import argparse
 import datetime
@@ -19,7 +22,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BUDGETS = ROOT / "docs/ux-budgets.json"
-STORE = ROOT / "build/diagnostic-receiver-v2-live-01/production/reports.sqlite"
 GAMMA = 1.01 / 0.99
 
 
@@ -52,7 +54,7 @@ def quantile(m, q):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--store", type=Path, default=STORE)
+    ap.add_argument("--store", type=Path, required=True, help="a receiver reports.sqlite")
     ap.add_argument("--build", help="build hash prefix (default: newest build with reports)")
     ap.add_argument("--ratchet", action="store_true", help="lower targets that the measurement beats")
     args = ap.parse_args()
