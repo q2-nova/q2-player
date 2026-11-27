@@ -5,8 +5,7 @@ contact. The player turns positions into detents, moves lists by detents,
 and seeks by detents on Now Playing. The tuning follows the iPod click wheel
 and is chosen on the Q2; it is not Apple's algorithm. The requirements are
 UX-011, BROWSE-002 and PLAYBACK-008 in the
-[specification](specification.md). [UX norms](ux-norms.md) cover hierarchy
-changes.
+[specification](specification.md).
 
 ## Detents
 

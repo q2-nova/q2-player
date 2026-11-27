@@ -5,10 +5,12 @@ player. Listen to files on the microSD card, stream music from Navidrome, or
 pick up a book from Audiobookshelf. You can try the controls in a browser
 before installing anything. [Try the player](https://q2-nova.github.io/site/features.html)
 
+For a Shanling Q2 running stock V1.32, read the [installation and recovery
+guide](docs/install.md). Use the [v0.1.0 stable release](https://github.com/q2-nova/q2-player/releases/tag/v0.1.0)
+when it is available. See the [release notes](docs/release-v0.1.0.md).
+
 Fork this repository to change the menus, playback or library behavior. The
-desktop simulator runs without a Q2. For a physical player, choose a release
-explicitly qualified for installation on stock Shanling Q2 hardware.
-[Player releases](https://github.com/q2-nova/q2-player/releases)
+desktop simulator runs without a Q2.
 
 ## Set up the player
 
