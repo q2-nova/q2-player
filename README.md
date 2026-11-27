@@ -1,6 +1,14 @@
 # Q2 Nova player
 
-A wheel-driven player for the Shanling Q2 with local playback and server-backed music and audiobooks. This repository owns the Rust workspace, browser player and contributor first-listen check. See [releases](https://github.com/q2-nova/q2-player/releases) for available packages. Physical installation requires a release explicitly qualified for stock Shanling Q2 hardware.
+Q2 Nova turns the Shanling Q2 into a wheel-controlled music and audiobook
+player. Listen to files on the microSD card, stream music from Navidrome, or
+pick up a book from Audiobookshelf. You can try the controls in a browser
+before installing anything. [Try the player](https://q2-nova.github.io/site/features.html)
+
+Fork this repository to change the menus, playback or library behavior. The
+desktop simulator runs without a Q2. For a physical player, choose a release
+explicitly qualified for installation on stock Shanling Q2 hardware.
+[Player releases](https://github.com/q2-nova/q2-player/releases)
 
 ## First listen
 
