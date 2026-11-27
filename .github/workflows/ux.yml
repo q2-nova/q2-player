@@ -11,6 +11,9 @@ on:
       - 'tests/ui/**'
       - 'tests/perf/test_diagnostic_receiver.py'
       - 'tools/diagnostic_receiver.py'
+      - 'tools/factory_device.py'
+      - 'tools/test_factory_device.py'
+      - 'tools/tokio-timer/q2_probe.py'
 
 permissions:
   contents: read
@@ -28,6 +31,8 @@ jobs:
         run: python3 -m unittest -v test_ux_faults test_ux_device_capture test_ux_polish_capture
       - name: Diagnostic receiver controls
         run: python3 -m unittest -v tests/perf/test_diagnostic_receiver.py
+      - name: Factory device transport controls
+        run: python3 -m unittest -v tools/test_factory_device.py
 
   journeys:
     runs-on: ubuntu-24.04

@@ -10,9 +10,17 @@ config. The generated Navidrome and Audiobookshelf servers
 (ux_polish_capture.Fixture) run on this host, bound to this host's address
 on the USB network (``--host``).
 
-Device access is only device_probe.py --stream (device lease), next to this
-file. The probe is not part of this repository; without it, ``--dry-run``
-and ``--local`` still run.
+Device access is only the q2-factory checkout's device probe
+(tools/factory_device.py): ``--factory PATH`` or ``Q2_FACTORY_CHECKOUT``
+names the checkout, and the run refuses without one. Each probe call takes
+the device lease, or joins the lease of a ``rigs/device/lease.py run`` this
+runs under; run it that way to hold the device across every scenario:
+
+    $F/rigs/device/lease.py run --name ux-device-capture -- python3 tests/ui/ux_device_capture.py --factory $F --host ADDR
+
+A held lease (exit 75) stops the run. ``--dry-run`` and ``--local`` need no
+checkout.
+
 One probe call per scenario. The generated config and script go in as base64
 heredocs; the PNGs, the text records and a bounded player-log tail come back
 as base64 between ``Q2UX FILE`` / ``Q2UX END`` lines, checked by size and
@@ -34,7 +42,7 @@ Connected as Navidrome stops, stops answering and returns; Radios with only
 Navidrome down) and ``states`` (failed pages in both themes and every
 accent). Generated data only.
 
-    python3 tests/ui/ux_device_capture.py [--only NAME ...] [--hold]
+    python3 tests/ui/ux_device_capture.py --factory PATH --host ADDR [--only NAME ...] [--hold]
     python3 tests/ui/ux_device_capture.py --dry-run --only online   # print the device script
     python3 tests/ui/ux_device_capture.py --local target/debug/q2nd  # transport test on this host
 """
@@ -53,6 +61,8 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(ROOT / 'tools'))
+import factory_device  # noqa: E402
 import ux_polish_capture as upc  # noqa: E402
 
 DEVICE_BASE = '/run/q2-ux-device'
@@ -464,11 +474,9 @@ def run(name, out, args):
         receiver = Receiver(on_event, echo=lambda line: print(f'  {name}: {line}', flush=True))
         budget = sum(e['timeout'] + 30 for e in entries) + 120
         if args.local:
-            argv = ['sh', '-s']
+            proc = subprocess.Popen(['sh', '-s'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         else:
-            argv = [sys.executable, str(HERE / 'device_probe.py'), '--stream', '--timeout', str(budget)]
-        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=None if not args.local else subprocess.STDOUT)
+            proc = factory_device.popen(budget, args.factory, stdout=subprocess.PIPE)
         proc.stdin.write(script.encode())
         proc.stdin.close()
         for raw in proc.stdout:
@@ -543,6 +551,8 @@ def main():
     parser.add_argument('--device-binary', default='installed',
                         help='q2nd on the Q2: "installed" (what the service runs, else /usr/bin/q2nd) or a path')
     parser.add_argument('--host', help='host address the Q2 reaches over USB (required except with --local)')
+    parser.add_argument('--factory', type=Path, metavar='PATH',
+                        help=f'q2-factory checkout whose device probe reaches the Q2 (default: ${factory_device.ENV})')
     parser.add_argument('--dry-run', action='store_true', help='print the device scripts; no fixtures, no device')
     parser.add_argument('--local', type=Path, metavar='Q2ND',
                         help='run the device script with sh on this host against a host q2nd (transport test)')
@@ -562,6 +572,10 @@ def main():
     if not base.is_relative_to(ROOT / 'build'):
         parser.error('--out must be below build/')
     if not args.local:
+        try:
+            factory_device.probe_path(args.factory)
+        except factory_device.NoFactory as error:
+            parser.error(str(error))
         import socket
         try:
             socket.create_server((args.host, 0)).close()
