@@ -65,11 +65,11 @@ python3 tests/portal/run.py --out build/portal-journeys --os-repo ../q2-os
 ```
 
 The command builds `q2-portal` and the `q2nd` tests with two jobs, generates a
-TLS root and venue certificate, and runs eight journeys on generated guest and
+TLS root and venue certificate, and runs nine journeys on generated guest and
 Delta venues inside an unprivileged bubblewrap sandbox with its own network.
 They cover helper detection and consent, Delta sign-in with trusted and
 untrusted certificates, video-page admission, the player supervisor, and the
-App's Wi-Fi screen with wheel and phone entry followed by an uncached stream.
+App's Wi-Fi screen with wheel, saved-account and phone entry followed by an uncached stream.
 The phone journeys use the access-point watcher and stand-in radio tools from a
 q2-os checkout; without `--os-repo` they are skipped. The Delta journeys use a
 copy of the helper whose only source change trusts the generated root; the
@@ -79,3 +79,10 @@ build refuses any other difference. Results are in
 
 Bubblewrap needs unprivileged user namespaces. On Ubuntu 24.04, allow them with
 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`.
+
+On the Ubuntu 24.04 GitHub runner, `app-phone` stalls before the first QR
+code: the App test times out waiting for the Wi-Fi QR, and the access-point
+watcher never creates `/run/q2-portal-phone`. The same journey passes on a
+Fedora host, and `phone-ap` (the watcher with the same stand-in radio) passes
+on the runner. The workflow passes `--known-issue app-phone`, which reports the
+result without failing the job; the other journeys are required.

@@ -15,6 +15,8 @@ wheel-supervisor   The player supervisor's cancel, challenge and success paths a
                    helper's video handling (ui::portal generated_wheel_login_supervisor_fixture).
 app-wheel          The App's Wi-Fi screen, a generated lease, wheel entry and an
                    uncached stream before and after admission (generated_delta_wheel_app_journey).
+app-saved          The same App journey with a generated account in config.toml's
+                   [portal.delta] and Use Saved Account.
 phone-ap           q2-os's own phone test: the real access-point watcher with stand-in
                    radio tools, a phone peer namespace and the helper's pairing page
                    (submit, cancel and station change). Needs a q2-os checkout.
@@ -36,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common  # noqa: E402
 
 JOURNEYS = ('guest-boingo', 'guest-long-terms', 'delta-ordinary', 'delta-video',
-            'wheel-supervisor', 'app-wheel', 'phone-ap', 'app-phone')
+            'wheel-supervisor', 'app-wheel', 'app-saved', 'phone-ap', 'app-phone')
 NEEDS_OS = ('phone-ap', 'app-phone')
 GENERATED_WIFI = f'''#!/bin/sh
 # Generated Wi-Fi helper: `up` associates, `dhcp` and `renew` lease {common.IP}.
@@ -48,9 +50,9 @@ dhcp|renew) ip addr replace {common.IP}/32 dev wlan0; : > /fixture/lifecycle/lea
 esac
 '''
 PASS_MARKERS = {'wheel-supervisor': 'Q2_GENERATED_WHEEL_SUPERVISOR_PASS',
-                'app-wheel': 'Q2_GENERATED_WHEEL_APP_PASS', 'app-phone': 'Q2_GENERATED_PHONE_APP_PASS'}
+                'app-wheel': 'Q2_GENERATED_WHEEL_APP_PASS', 'app-saved': 'Q2_GENERATED_WHEEL_APP_PASS', 'app-phone': 'Q2_GENERATED_PHONE_APP_PASS'}
 SCENARIOS = {'wheel-supervisor': ['cancel', 'challenge', 'success', 'video_admitted', 'video_gated'],
-             'app-wheel': ['wheel-with-media'], 'app-phone': ['phone-prepared-retry-with-media']}
+             'app-wheel': ['wheel-with-media'], 'app-saved': ['saved-with-media'], 'app-phone': ['phone-prepared-retry-with-media']}
 
 
 def guest(name, out, inputs):
@@ -121,7 +123,7 @@ def venue(name, out, inputs):
              '--setenv', 'Q2ND_WPA_CTRL', '/run/generated-wpa',
              '--setenv', 'Q2_GENERATED_TEST_ROOT', '/fixture/lifecycle/data',
              '/usr/bin/python3', '/fixture/venue.py', {'wheel-supervisor': 'supervisor', 'app-wheel': 'wheel',
-                                                       'app-phone': 'phone'}[name]]
+                                                       'app-saved': 'saved', 'app-phone': 'phone'}[name]]
     log = out / 'run.log'
     with log.open('x') as stream:
         try:
@@ -145,6 +147,8 @@ def main():
     parser.add_argument('--os-repo', type=Path, help='q2-os checkout for app-phone (skipped without it)')
     parser.add_argument('--target-dir', type=Path, default=common.ROOT / 'target')
     parser.add_argument('--only', choices=JOURNEYS, action='append', help='run only these journeys')
+    parser.add_argument('--known-issue', choices=JOURNEYS, action='append', default=[],
+                        help='report this journey without failing the run (a documented runner issue)')
     args = parser.parse_args()
     out = args.out.resolve()
     if not out.is_relative_to(common.ROOT / 'build'):
@@ -179,11 +183,17 @@ def main():
                   if name in ('production', 'fixture', 'player_test', 'player', 'root_der')}
     commit = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=common.ROOT, capture_output=True,
                             text=True).stdout.strip()
-    result = {'passed': all(j['passed'] for j in journeys.values()) and bool(journeys), 'hardware': False,
+    for name in args.known_issue:
+        if name in journeys:
+            journeys[name]['known_issue'] = True
+    result = {'passed': all(j['passed'] or j.get('known_issue') for j in journeys.values()) and bool(journeys),
+              'hardware': False,
               'source_commit': commit, 'build_seconds': build_seconds, 'journeys': journeys,
               'identities': identities, 'trust_variant': 'fixture helper trusts only the generated root'}
     (out / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
-    rows = [f'| {name} | {"passed" if j["passed"] else "failed"} | {j["seconds"]} s |' for name, j in journeys.items()]
+    def outcome(j):
+        return 'passed' if j['passed'] else 'failed (known runner issue, not required)' if j.get('known_issue') else 'failed'
+    rows = [f'| {name} | {outcome(j)} | {j["seconds"]} s |' for name, j in journeys.items()]
     (out / 'summary.md').write_text('## Generated portal journeys\n\n| Journey | Result | Time |\n| --- | --- | ---: |\n'
                                     + '\n'.join(rows) + '\n')
     print(json.dumps({name: j['passed'] for name, j in journeys.items()}), flush=True)

@@ -10,6 +10,8 @@ supervisor  ui::portal::tests::generated_wheel_login_supervisor_fixture for
 wheel       ui::settings_tests::generated_delta_wheel_app_journey with wheel
             entry, a generated lease and an uncached stream before and after
             admission.
+saved       The same App journey with the account from config.toml's
+            [portal.delta] and Use Saved Account.
 phone       The same App journey with phone entry over the temporary access
             point, a transient failure before the password prompt, Retry and
             the prepared account, then the uncached stream.
@@ -391,9 +393,11 @@ def decoded(stdout):
     return int(advanced)
 
 
-def wheel():
+def wheel(saved=False):
     link(static_address=False)
     (LIFECYCLE / 'streaming').touch()
+    if saved:
+        (LIFECYCLE / 'case').write_text('saved')
     fixture.account, fixture.password = 'ab', 'ab'
     with Supplicant() as supplicant, venue() as web:
         p = player(APP_TEST, 45)
@@ -402,7 +406,7 @@ def wheel():
         denied_before_auth = sum(req['status'] == 403 for req in web.media_requests)
         assert denied_before_auth == 1 and web.media_requests[0] == {'status': 403, 'bytes': 0}
         check_signin(supplicant, retried=False)
-        report('wheel-with-media', counts=dict(fixture.events), status_queries=supplicant.commands['STATUS'],
+        report('saved-with-media' if saved else 'wheel-with-media', counts=dict(fixture.events), status_queries=supplicant.commands['STATUS'],
                **stream_evidence(web, denied_before_auth, decoded(p.stdout)))
     print('Q2_GENERATED_WHEEL_APP_PASS', flush=True)
 
@@ -416,6 +420,11 @@ def show_radio(mock, run):
         elif path.exists():
             print(f'-- {path}: {sorted(p.name for p in path.iterdir()) if path.is_dir() else "special"}', flush=True)
     print(f'-- {run} exists: {run.exists()}', flush=True)
+    for query in ('frequencies', 'station-frequency'):
+        answer = subprocess.run(['/usr/libexec/q2-network/portal-phone-ap', query], capture_output=True, text=True)
+        print(f'-- portal-phone-ap {query}: exit {answer.returncode}', answer.stdout, answer.stderr, sep='\n', flush=True)
+    print('-- /proc/net/route', Path('/proc/net/route').read_text(), sep='\n', flush=True)
+    print('-- links', subprocess.run(['ip', '-o', 'addr'], capture_output=True, text=True).stdout, sep='\n', flush=True)
 
 
 def phone():
@@ -497,4 +506,5 @@ def phone():
 
 
 if __name__ == '__main__':
-    {'supervisor': supervisor, 'wheel': wheel, 'phone': phone}[sys.argv[1]]()
+    {'supervisor': supervisor, 'wheel': wheel, 'saved': lambda: wheel(saved=True),
+     'phone': phone}[sys.argv[1]]()

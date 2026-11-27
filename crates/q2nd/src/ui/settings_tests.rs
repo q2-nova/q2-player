@@ -2831,6 +2831,11 @@ fn generated_delta_wheel_app_journey() {
     use super::portal::{Portal, State};
     let mut app = fixture();
     app.background = false;
+    let case = std::fs::read_to_string("/fixture/lifecycle/case").unwrap_or_default();
+    if case == "saved" {
+        // A generated account in config.toml's [portal.delta]; Delta accepts either name field.
+        app.config.portal = toml::from_str("[delta]\nskymiles_number = \"ab\"\npassword = \"ab\"\n").unwrap();
+    }
     let notify = app.tx.clone();
     app.net = Net::new(
         "/fixture/generated-wifi".into(),
@@ -2898,7 +2903,7 @@ fn generated_delta_wheel_app_journey() {
     } else {
         None
     };
-    let phone = std::fs::read_to_string(lifecycle.join("case")).ok().as_deref() == Some("phone");
+    let phone = case == "phone";
     if phone {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
@@ -2953,7 +2958,12 @@ fn generated_delta_wheel_app_journey() {
             choose(&mut app, "Use Prepared Account");
             assert!(app.portal.has_prepared(), "starting the retry still does not consume the account");
         }
+    } else if case == "saved" {
+        assert!(has_row(&app, "Use Saved Account"));
+        choose(&mut app, "Use Saved Account");
+        assert!(app.portal.state == State::Working);
     } else {
+        assert!(!has_row(&app, "Use Saved Account"));
         choose(&mut app, "Enter SkyMiles Details");
         assert_eq!(title(&app), "Wi-Fi Sign-In");
         assert!(app.portal.state == State::Working);
@@ -2977,6 +2987,9 @@ fn generated_delta_wheel_app_journey() {
     assert!(app.portal.state == State::Online);
     if phone {
         assert!(!app.portal.has_prepared(), "the submitted prepared account is one-use");
+    }
+    if case == "saved" {
+        assert!(app.config.portal.delta.as_ref().is_some_and(|d| d.sign_in().is_some()), "the settings keep the account");
     }
     choose(&mut app, "Done");
     assert_eq!(title(&app), "Wi-Fi");

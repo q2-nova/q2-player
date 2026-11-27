@@ -1,8 +1,9 @@
 # Test Wi-Fi sign-in on a real network
 
 The player can get past three kinds of Wi-Fi sign-in page without a browser:
-an airport or venue guest agreement, Delta Sync with SkyMiles details typed on
-the wheel, and Delta Sync with SkyMiles details typed on a phone. This guide
+an airport or venue guest agreement, Delta Sync with a SkyMiles account, and
+Delta Sync with the account typed on a phone. The SkyMiles account can come
+from the card's settings file or be typed on the wheel. This guide
 shows how to start each one, what the player records, and how to report a
 failure. These flows have passed generated tests only; a real network is the
 test.
@@ -46,6 +47,31 @@ Back leaves any flow without sending anything further.
 
 The player picks only a free choice with visible agreement wording. It never
 opens the terms link, an account login or a paid option.
+
+## Delta with the saved account
+
+The card's `Q2Mainline/config.toml` can hold the account:
+
+```toml
+[portal.delta]
+skymiles_number = "SKYMILES NUMBER"   # or: username = "USERNAME"
+password = "PASSWORD"
+```
+
+If both `username` and `skymiles_number` are present, `username` is used.
+
+1. Join **DeltaWiFi.com** and open **Wi-Fi Sign-In**. The screen is titled
+   **Delta Wi-Fi** and offers **Use Saved Account** when the file has both an
+   account name and a password. Without them the row is absent.
+2. Choose **Use Saved Account**. The player contacts Delta and answers its
+   account prompt with the saved details.
+3. Expected results are the same as for the wheel below.
+4. Play the track that is not downloaded.
+
+The player never shows, logs or records the saved values. Saving any setting
+on the player keeps the `[portal]` table in the file as written. The table is
+not copied to the player's internal settings, so the row appears only with
+the card in.
 
 ## Delta on the wheel
 
