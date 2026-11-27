@@ -10,61 +10,72 @@ desktop simulator runs without a Q2. For a physical player, choose a release
 explicitly qualified for installation on stock Shanling Q2 hardware.
 [Player releases](https://github.com/q2-nova/q2-player/releases)
 
-## First listen
+## Set up the player
 
-With the repository’s Rust toolchain, the simulator’s native development libraries, Python and FFmpeg installed, run:
+Once Q2 Nova is installed, [join Wi-Fi, connect Navidrome or Audiobookshelf,
+and pair Bluetooth headphones](docs/setup.md). Settings live in the card's
+`Q2Mainline/config.toml` and can also be edited on a computer.
+
+## Try the player without a Q2
+
+With the repository’s Rust toolchain, the simulator’s native development
+libraries, Python and FFmpeg installed, run:
 
 ```sh
 python3 tests/e2e/first-listen.py --out build/my-first-listen
 ```
 
-The check builds the native simulator, generates a short audiobook, plays it, pauses and repeats in Offline Mode. Use a fresh output name for each run. The SQLite compile options used by this workspace are tracked in `q2/toolchain/libsqlite3-flags`.
+The check builds the native simulator, generates a short audiobook, plays
+it, pauses and repeats in Offline Mode. Use a fresh output name for each
+run. [Simulator prerequisites and checks](tests/e2e/README.md) · [Browser
+demo](web-demo/README.md)
 
-See [simulator prerequisites and checks](tests/e2e/README.md) and the [browser demo](web-demo/README.md). The [component lock](component-lock.json) selects exact revisions in the q2-nova repositories. The simulator uses generated media and needs no Q2 hardware.
+## Build and test
 
-[Tests](docs/testing.md) describes the host tests, the target tests under QEMU and the CI that runs them.
+[Tests](docs/testing.md) describes the host tests, the Rust tests built for
+the Q2 and run under QEMU, and the CI that runs them. The [target build
+guide](docs/target-build.md) builds the player and portal for the Q2 from an
+OS SDK and the X2000 compiler. The [component lock](component-lock.json)
+selects exact revisions in the q2-nova repositories. See the
+[architecture](docs/architecture.md) for how the native player and browser
+demo are divided, and the [specification](docs/specification.md) for what
+the player must do. The [changelog](CHANGELOG.md) records completed work.
 
-## Accounts and stations
+## Releases
 
-Settings live in the card's `Q2Mainline/config.toml`. For Last.fm
-scrobbling, run `python3 tools/lastfm_authorize.py --out NEW_FILE --contact-url HTTPS_URL`
-on a computer with the API key and secret of your Last.fm API account, and
-merge the `[lastfm]` stanza it writes into `config.toml`.
-`q2nd --radio-import MANIFEST CONFIG [--apply]` adds web radio stations to
-the Navidrome server (RADIO-IMPORT-001).
+The [release lock](release-lock.json) selects the OS (SDK and platform),
+compiler, QEMU and network daemon by their release tags. A player tag builds
+the paired player and portal, composes the OS image, and boots that exact
+image under QEMU before attaching the emulator rehearsal to a prerelease. A
+stock release adds a physical test of the exact `update.tar` on a Q2 running
+stock firmware. [Release candidates](docs/release-candidate.md)
 
-## Device builds
-
-The installed Q2 runs the paired player and portal with the q2-os firmware.
-Use the [target build guide](docs/target-build.md) for local development and
-the [release candidate guide](docs/release-candidate.md) to build and verify
-the complete emulator package. See the [architecture](docs/architecture.md)
-for the native player and browser demo boundaries.
-The [specification](docs/specification.md) lists what the player must do,
-and the [changelog](CHANGELOG.md) records completed work.
-
-## Building a release candidate
-
-The [release lock](release-lock.json) selects the OS (SDK and platform), compiler,
-QEMU and network daemon by their release tags. The **Player release candidate**
-workflow builds the paired player and portal when a player RC tag is pushed.
-It composes, packs and boots the exact QEMU image before attaching the emulator
-rehearsal to a prerelease. See the [release workflow](docs/release-candidate.md)
-for the separate physical stock qualification path.
-
-On an x86-64 Linux host with Python 3.12+ and GitHub CLI, the same lock can
-fetch and verify the component assets for a local build:
+On an x86-64 Linux host with Python 3.12+ and GitHub CLI, the same lock
+fetches and verifies the component assets for a local build:
 
 ```sh
 python3 tools/fetch-build-tools.py --out build/rc-inputs
 ```
 
-The command reads checksums from the selected releases, relocates the SDK, and
-records the resolved source commits and asset hashes under its output directory.
-Use a fresh output directory. App forks use the q2-nova component releases by
-default. Set the Actions repository variable `Q2_COMPONENTS_OWNER` or pass
-`--owner` locally to choose another component owner. Private component
-repositories require read access.
+The command reads checksums from the selected releases, relocates the SDK,
+and records the resolved source commits and asset hashes under its output
+directory. Use a fresh output directory. Forks of this repository use the
+q2-nova component releases by default; set the Actions repository variable
+`Q2_COMPONENTS_OWNER` or pass `--owner` to use another owner's releases.
+
+## Related repositories
+
+- [q2-os](https://github.com/q2-nova/q2-os): the Linux system, recovery environment and SDK.
+- [q2-toolchain](https://github.com/q2-nova/q2-toolchain): the Rust and Clang cross-compilers and the Q2 QEMU emulator.
+- [tsrs](https://github.com/q2-nova/tsrs): the Tailscale network daemon.
+- Fork used as a build input: [tokio](https://github.com/q2-nova/tokio) (branch `q2/1.54.1`).
+
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers building, testing and what a pull
+request must pass. Report vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md). Participation follows the [code of
+conduct](CODE_OF_CONDUCT.md).
 
 ## License
 

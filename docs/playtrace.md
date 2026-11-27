@@ -209,14 +209,6 @@ PLAYTRACE_TRACK v=1 t=SECONDS.MS track= origin= reason= dur_ms= packets= frames=
 `t` is boottime. `buf_min_ms` is the least audio queued when a write began.
 `ev_lost` and `win_lost` are the rings' overwrite counts so far.
 
-## Analysis
-
-q2-factory's
-[`gates/battery/playtrace_place.py`](https://github.com/q2-nova/q2-factory/blob/main/gates/battery/playtrace_place.py)
-places each recovery in a dump against the slow reads, write gaps, buffer
-minima, transfers, fetch-ahead and card-write stalls before it, and refuses
-a truncated or inconsistent dump.
-
 ## Tests
 
 - `playtrace::tests`: ring overflow and loss counts, windows, the disabled

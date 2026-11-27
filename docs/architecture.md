@@ -2,7 +2,7 @@
 
 [`q2nd`](../crates/q2nd/) is the native player. It owns navigation, playback,
 the local library and the client connections to Navidrome and Audiobookshelf.
-The [OS](https://github.com/q2-nova/q2-os) supplies the device platform,
+The OS (q2-os) supplies the device platform,
 supervision, networking helpers and installation. The browser demo shares the
 renderer, settings and playback decisions with the native player.
 
@@ -32,7 +32,7 @@ their effects.
   detector ([`rt/stall.rs`](../crates/q2nd/src/rt/stall.rs)) logs a task
   that holds its executor for 50 ms or more.
 - Use `tokio::time` for timers. The workspace patches tokio to branch
-  `q2/1.54.1` of [q2-nova/tokio](https://github.com/q2-nova/tokio), which
+  `q2/1.54.1` of the q2-nova/tokio fork, which
   wakes the runtime thread once per timer expiry.
 - Do blocking work (card, process and device I/O, sleeps, waits) only in
   functions that take `&rt::Blocking`. Only `rt::spawn_blocking` (a pool

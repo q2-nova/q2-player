@@ -168,11 +168,6 @@ with `--cfg q2_mp3_profile`, `q2_flac_profile` or `q2_alac_profile`; the
 paths in place of the MSA kernels. `build-target.py` sets the compiler flags
 itself and passes no extra `--cfg`, so it builds none of these variants.
 
-On-device comparisons of two builds, and the emulator hash check that comes
-first, are q2-factory gates (`gates/perf/bench_ab.py` and
-`gates/perf/bench_qemu.py`, described in
-[qualifying a change](https://github.com/q2-nova/q2-factory/blob/main/docs/qualifying-a-change.md#performance)).
-
 ## Startup read-ahead
 
 The installed image reads ahead the parts of q2nd that Home and first Play
