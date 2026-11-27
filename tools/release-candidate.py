@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Verify locked release inputs and compose a Q2 stock candidate or QEMU rehearsal."""
+"""Verify locked release inputs and compose a Q2 stock candidate or QEMU rehearsal.
+
+`release-candidate.py check-profile --build-result RESULT --source COMMIT`
+checks that a release build's q2nd profile receipt names that source commit
+and the build's compiler; stock drafts check the same on their symbols.
+"""
 import argparse
 import hashlib
 import json
@@ -75,6 +80,24 @@ def stock_qualification(path, source, pins, record, package_sha):
     return evidence
 
 
+def check_profile(build, source):
+    """The q2nd profile receipt of a release build: made from `source` and the build's compiler."""
+    pgo = build.get('pgo')
+    receipt = pgo.get('receipt') if isinstance(pgo, dict) else None
+    if not isinstance(receipt, dict):
+        raise ValueError('release build has no q2nd profile receipt')
+    inputs, compiler = build.get('inputs_sha256', {}), receipt.get('compiler') or {}
+    if (receipt.get('program') != 'q2nd' or build.get('source_commit') != source
+            or receipt.get('source_commit') != source
+            or compiler.get('compiler_receipt_sha256') != inputs.get('compiler_receipt')
+            or compiler.get('rustc_sha256') != inputs.get('rustc')
+            or not receipt.get('profile_sha256')
+            or len({receipt.get('profile_sha256'), pgo.get('profile_sha256'), inputs.get('profile_use')}) != 1
+            or receipt.get('feature_set_sha256') != build.get('feature_set_sha256')):
+        raise ValueError('q2nd profile receipt does not match the release source and compiler')
+    return receipt
+
+
 def trusted_player(requested, head, git):
     source = requested or head
     if not re.fullmatch(r'[0-9a-f]{40}', source):
@@ -87,6 +110,18 @@ def trusted_player(requested, head, git):
 
 
 def main():
+    if sys.argv[1:2] == ['check-profile']:
+        checker = argparse.ArgumentParser(prog='release-candidate.py check-profile',
+                                          description='Check the q2nd profile receipt of a build-target.py result.')
+        checker.add_argument('--build-result', type=Path, required=True)
+        checker.add_argument('--source', required=True, help='the release source commit')
+        args = checker.parse_args(sys.argv[2:])
+        try:
+            receipt = check_profile(load(args.build_result), args.source)
+        except ValueError as error:
+            checker.exit(1, f'{error}\n')
+        print(json.dumps({key: receipt[key] for key in ('profile_sha256', 'training_version', 'minutes')}))
+        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mode', choices=('stock-draft', 'qemu-rehearsal'), required=True)
     for arg in ('bundle', 'os-repo', 'out'):
@@ -156,7 +191,8 @@ def main():
         if sha(staged) != package_sha:
             raise ValueError('staged stock package differs from the actual hardware test')
         symbols = regular(bundle, SYMBOLS)
-        runpy.run_path(str(ROOT / 'tools/release-symbols.py'))['check'](symbols, manifest['app_sha256'])
+        build = runpy.run_path(str(ROOT / 'tools/release-symbols.py'))['check'](symbols, manifest['app_sha256'])
+        check_profile(build, source)
         shutil.copyfile(symbols, stock / SYMBOLS)
         if sha(stock / SYMBOLS) != record['files'][SYMBOLS]:
             raise ValueError('staged symbols differ from the release inputs')

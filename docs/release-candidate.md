@@ -10,7 +10,12 @@ build receipts record exactly which revisions the build used.
 A player tag such as `v0.1.0-rc.1` on a verified commit in main triggers **Player release
 candidate**. It builds the paired player and portal, composes a keyless
 installed OS fixture with the tagged OS builder and prebuilt kernel, packs the firmware archive and
-reads it back before booting those exact bytes under QEMU. The paired artifact
+reads it back before booting those exact bytes under QEMU. Before the
+release build it profiles q2nd in the emulator (`tools/pgo.py profile`, see
+[the target build](target-build.md#profile-guided-release-build)) and builds
+with that profile. `tools/release-candidate.py check-profile` refuses a
+receipt from another source commit or compiler. The boot result records the
+q2nd receipt and the downloaded TSRS daemon's receipt under `pgo`. The paired artifact
 remains in Actions for reuse. The prerelease contains
 `update.tar` labelled QEMU emulator rehearsal only, its boot result, corresponding player source,
 `q2nd-symbols.tar.gz` and their checksums. Keep this

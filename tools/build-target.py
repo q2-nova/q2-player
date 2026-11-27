@@ -52,7 +52,11 @@ def main():
                         help='build q2nd with the stall sampler; the output is not for release')
     parser.add_argument('--unwinder', type=Path,
                         help='target libunwind prefix for sampler stacks; requires --emulator-diagnostics')
-    parser.add_argument('--profile-use', type=Path, help='optional q2nd PGO profile for these inputs')
+    profile = parser.add_mutually_exclusive_group()
+    profile.add_argument('--profile-use', type=Path,
+                         help='q2nd PGO profile; its receipt.json beside it must match this build')
+    profile.add_argument('--profile-generate', type=Path, metavar='PROFILES',
+                         help='build only an instrumented q2nd that writes raw profiles to PROFILES (tools/pgo.py)')
     args = parser.parse_args()
     sdk = args.sdk.resolve()
     sdk_bin = sdk / 'bin'
@@ -75,6 +79,8 @@ def main():
     for path in (compiler_helper, target_base, settings, args.profile_use):
         if path is not None and not path.is_file():
             parser.error(f'file required: {path}')
+    if args.profile_generate and args.emulator_diagnostics:
+        parser.error('profiles come from builds without the stall sampler')
     if args.unwinder and not args.emulator_diagnostics:
         parser.error('--unwinder requires --emulator-diagnostics; release builds link no unwinder')
     if args.unwinder and not all((args.unwinder / file).is_file()
@@ -115,11 +121,33 @@ def main():
         features['q2nd'] += DIAGNOSTIC_FEATURES
     # Compare this with the build that produced a --profile-use profile.
     feature_set = hashlib.sha256(json.dumps(features, sort_keys=True).encode()).hexdigest()
+    pgo = None
+    if args.profile_use or args.profile_generate:
+        driver_path = toolchain / 'tools/q2_pgo.py'
+        if not driver_path.is_file():
+            parser.error(f'the locked q2-toolchain has no PGO driver: {driver_path}')
+        module = importlib.util.spec_from_file_location('q2_pgo', driver_path)
+        driver = importlib.util.module_from_spec(module)
+        module.loader.exec_module(driver)
+        compiler_identity = driver.compiler_identity(compiler)
     if args.profile_use:
+        receipt_path = args.profile_use.parent / 'receipt.json'
+        try:
+            receipt = json.loads(receipt_path.read_text())
+            driver.check_receipt(receipt, args.profile_use, compiler=compiler_identity, feature_set=feature_set)
+        except (OSError, ValueError) as error:
+            parser.error(f'{args.profile_use}: {error}')
         identities['profile_use'] = sha(args.profile_use)
+        identities['profile_receipt'] = sha(receipt_path)
+        pgo = {'profile_sha256': identities['profile_use'], 'receipt_sha256': identities['profile_receipt'],
+               'receipt': receipt}
+    if args.profile_generate:
+        runtime, _ = driver.runtime(compiler)
+        identities['profile_runtime'] = sha(runtime)
+        instrument = driver.instrument_flags(args.profile_generate.resolve(), runtime)
     compiler_env = x2000.cargo_env(sdk=sdk)
     cache_data = (identities, target_spec, {key: str(value) for key, value in compiler_env.items()},
-                  str(sdk), str(linker), str(args.unwinder), str(args.profile_use), features)
+                  str(sdk), str(linker), str(args.unwinder), str(args.profile_use), str(args.profile_generate), features)
     cache_key = hashlib.sha256(json.dumps(cache_data, sort_keys=True).encode()).hexdigest()[:20]
     target_dir = ROOT / 'build' / ('player-target-' + cache_key)
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -144,7 +172,8 @@ def main():
             '-Zbuild-std=std,panic_abort',
             '-Zbuild-std-features=panic-unwind,backtrace,backtrace-trace-only',
             '-Zjson-target-spec', '--target', target]
-    for name in PACKAGES:
+    packages = ('q2nd',) if args.profile_generate else PACKAGES
+    for name in packages:
         flags = rustflags.copy()
         options = []
         if features[name]:
@@ -152,7 +181,9 @@ def main():
         if name == 'q2nd':
             options.append('--no-default-features')
             if args.profile_use:
-                flags.append('-Cprofile-use=' + str(args.profile_use.resolve()))
+                flags += driver.use_flags(args.profile_use.resolve())
+            if args.profile_generate:
+                flags += instrument
         run(*base, '-p', name, *options, env=dict(env, CARGO_ENCODED_RUSTFLAGS='\x1f'.join(flags)))
 
     artifacts = {}
@@ -161,7 +192,7 @@ def main():
         json.loads(producer_record)
         (out / 'producer-inputs.json').write_bytes(producer_record)
         identities['producer_inputs'] = sha(out / 'producer-inputs.json')
-    for name in PACKAGES:
+    for name in packages:
         image = out / name
         symbols = out / 'symbols'
         if name != 'q2nd':
@@ -179,8 +210,10 @@ def main():
     (out / 'source-commit').write_text(source_commit + '\n')
     with (out / 'result.json').open('x') as receipt:
         json.dump({'passed': True, 'source_commit': source_commit, 'target': TARGET,
-                   'profile': 'emulator-diagnostic' if args.emulator_diagnostics else 'release',
-                   'release_eligible': not args.emulator_diagnostics,
+                   'profile': ('emulator-diagnostic' if args.emulator_diagnostics
+                               else 'pgo-instrumented' if args.profile_generate else 'release'),
+                   'release_eligible': not (args.emulator_diagnostics or args.profile_generate),
+                   'pgo': pgo,
                    'features': features, 'feature_set_sha256': feature_set,
                    'components': component_commits, 'inputs_sha256': identities, 'artifacts': artifacts}, receipt, indent=2)
         receipt.write('\n')

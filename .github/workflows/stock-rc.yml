@@ -53,20 +53,26 @@ jobs:
             [[ "$name" =~ ^[a-z0-9][a-z0-9+.-]*(:amd64)?$ ]]
           done
           sudo apt-get update
-          sudo apt-get install -y cpio squashfs-tools podman "${runtime[@]}"
-      - name: Fetch locked Cargo sources and build the paired target
+          sudo apt-get install -y cpio squashfs-tools podman ffmpeg "${runtime[@]}"
+      - name: Fetch locked Cargo sources, profile q2nd and build the paired target
         run: |
           nightly=$(jq -er .rust_toolchain build/stock-rc-inputs/q2-os/os/sources.json)
           rustup toolchain install "$nightly" --profile minimal --component rust-src
           cargo "+$nightly" fetch --locked
           std_manifest="$PWD/build/stock-rc-inputs/compiler/install/lib/rustlib/src/rust/library/Cargo.toml"
           cargo "+$nightly" fetch --locked --manifest-path "$std_manifest"
+          python3 tools/pgo.py profile --component-lock build/stock-rc-inputs/component-lock.json \
+            --sdk build/stock-rc-inputs/sdk/mipsel-buildroot-linux-gnu_sdk-buildroot \
+            --toolchain-repo build/stock-rc-inputs/q2-toolchain --compiler-work build/stock-rc-inputs/compiler \
+            --os-repo build/stock-rc-inputs/q2-os --qemu-user build/stock-rc-inputs/qemu/bin/qemu-mipsel --out build/pgo
           python3 tools/build-target.py --component-lock build/stock-rc-inputs/component-lock.json \
             --sdk build/stock-rc-inputs/sdk/mipsel-buildroot-linux-gnu_sdk-buildroot \
             --toolchain-repo build/stock-rc-inputs/q2-toolchain --compiler-work build/stock-rc-inputs/compiler \
             --os-repo build/stock-rc-inputs/q2-os --producer-inputs build/stock-rc-inputs/producer-inputs.json \
-            --out build/paired-player
+            --profile-use build/pgo/q2nd.profdata --out build/paired-player
           jq -e '.profile == "release" and .release_eligible == true and .features.q2nd == []' build/paired-player/result.json
+          python3 tools/release-candidate.py check-profile --build-result build/paired-player/result.json \
+            --source "$STOCK_PLAYER_COMMIT"
       - name: Prepare, pack, read back and boot the exact stock archive
         run: bash tools/build-stock-rc.sh
       - name: Attach the checked bytes to a new private draft
