@@ -1,5 +1,5 @@
 {
-  "version": "V0.02",
+  "version": "V0.03",
   "starting_version": "V1.32",
-  "starting_version_status": "Provisional for this trial. Factory V1.32 was measured separately. The physical trial of this package is pending."
+  "starting_version_status": "The factory V1.32 update flow was verified with V0.02. Physical qualification of V0.03 is pending."
 }
