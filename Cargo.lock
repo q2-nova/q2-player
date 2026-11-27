@@ -2105,6 +2105,7 @@ dependencies = [
 [[package]]
 name = "tokio"
 version = "1.54.1"
+source = "git+https://github.com/q2-nova/tokio?rev=22ab0ee6ac7fc4be568acde63de8c6eac0f274b7#22ab0ee6ac7fc4be568acde63de8c6eac0f274b7"
 dependencies = [
  "bytes",
  "libc",

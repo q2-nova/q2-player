@@ -7,7 +7,7 @@
 //! [`spawn_blocking`], which hands the closure the [`Blocking`] witness.
 //!
 //! Timers are `tokio::time`: the workspace's tokio is patched to wake the
-//! runtime thread once per expiry (crates/vendor/tokio/README.q2.md), which
+//! runtime thread once per expiry (q2-nova/tokio branch q2/1.54.1), which
 //! the tests below count.
 //!
 //! Rules for async modules (docs/architecture.md, "Runtime rules"): spawn tasks

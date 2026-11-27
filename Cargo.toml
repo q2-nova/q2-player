@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
 members = ["crates/portal-trace", "crates/portal", "crates/subsonic", "crates/machines", "crates/bt", "crates/codecs/q2-aac", "crates/codecs/q2-aptx", "crates/codecs/q2-ldac", "crates/q2nd"]
-# The patched tokio, libsqlite3-sys, symphonia crates and zune-jpeg are dependencies, not members
+# The patched libsqlite3-sys, symphonia crates and zune-jpeg are dependencies, not members
 # (crates/vendor/*/README.q2.md). build/ holds other source trees (the rustc
 # source of tools/x2000_toolchain.py), which are not part of this workspace.
-exclude = ["build", "crates/vendor/tokio", "crates/vendor/libsqlite3-sys", "crates/vendor/symphonia-bundle-mp3",
+exclude = ["build", "crates/vendor/libsqlite3-sys", "crates/vendor/symphonia-bundle-mp3",
     "crates/vendor/symphonia-bundle-flac", "crates/vendor/symphonia-codec-alac", "crates/vendor/zune-jpeg",
     "crates/vendor/symphonia-core", "crates/vendor/symphonia-metadata", "crates/vendor/symphonia-format-isomp4",
     "crates/vendor/symphonia-format-riff"]
@@ -169,10 +169,11 @@ opt-level = 2
 overflow-checks = false
 debug-assertions = false
 
-# tokio 1.54.1 with the time driver patched to wake once per timer expiry
-# (Product feedback, 2026-11-12). Every crate that depends on tokio gets this copy.
+# tokio 1.54.1 with the time driver patched to wake the thread once per timer
+# expiry: branch q2/1.54.1 of q2-nova/tokio, which tsrs also uses. Every crate
+# that depends on tokio gets this copy.
 [patch.crates-io]
-tokio = { path = "crates/vendor/tokio" }
+tokio = { git = "https://github.com/q2-nova/tokio", rev = "22ab0ee6ac7fc4be568acde63de8c6eac0f274b7" }
 # libsqlite3-sys 0.39.1 with SQLite's compile options read from
 # q2/toolchain/libsqlite3-flags, so host tests, the simulator and the Q2 build
 # the same SQLite.
