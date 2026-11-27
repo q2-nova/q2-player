@@ -32,7 +32,7 @@ class Guard(unittest.TestCase):
         spec=importlib.util.spec_from_file_location('generated_native_cache',perf/'native_test_cache.py')
         cache=importlib.util.module_from_spec(spec);spec.loader.exec_module(cache)
         cache.prepare(self.root)
-        (self.root/'docs').mkdir();(self.root/'docs/ui-hierarchy.md').write_text('generated fixture only')
+        (scripts/'ui-hierarchy.md').write_text('generated fixture only')
         self.log.write_bytes(b'active compiler bytes')
         result=subprocess.run(['python3',str(scripts/'map.py')],capture_output=True,timeout=5)
         self.assertNotEqual(result.returncode,0);self.assertIn(b'Refusing',result.stderr);self.assertEqual(self.log.read_bytes(),b'active compiler bytes')

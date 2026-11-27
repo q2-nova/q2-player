@@ -742,7 +742,7 @@ Source includes Center-speed controls.\n");
     let generated = root.join("build/ui/hierarchy.md");
     std::fs::create_dir_all(generated.parent().unwrap()).unwrap();
     std::fs::write(&generated, &output).unwrap();
-    let reviewed = root.join("docs/ui-hierarchy.md");
+    let reviewed = root.join("tests/ui/ui-hierarchy.md");
     if std::env::var_os("Q2_UI_MAP_UPDATE").is_some() {
         std::fs::write(reviewed, &output).unwrap();
     } else {

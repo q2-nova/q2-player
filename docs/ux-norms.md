@@ -68,7 +68,7 @@ discoverability of hidden actions, and Back/cancel behavior. Check music, books
 and podcasts independently where their semantics differ. Add fixture-driven
 transition/property coverage for the behavior; investigate unexplained map drift
 rather than simply accepting a new snapshot. Run `python3 tests/ui/map.py` to
-check the implementation-derived [map](ui-hierarchy.md), or
+check the implementation-derived [map](../tests/ui/ui-hierarchy.md), or
 `python3 tests/ui/map.py --write` to regenerate it for deliberate review.
 The map records its generator coverage and limits.
 
