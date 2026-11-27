@@ -22,6 +22,15 @@ The check builds the native simulator, generates a short audiobook, plays it, pa
 
 See [simulator prerequisites and checks](tests/e2e/README.md) and the [browser demo](web-demo/README.md). The [component lock](component-lock.json) selects exact revisions in the q2-nova repositories. The simulator uses generated media and needs no Q2 hardware.
 
+## Accounts and stations
+
+Settings live in the card's `Q2Mainline/config.toml`. For Last.fm
+scrobbling, run `python3 tools/lastfm_authorize.py --out NEW_FILE --contact-url HTTPS_URL`
+on a computer with the API key and secret of your Last.fm API account, and
+merge the `[lastfm]` stanza it writes into `config.toml`.
+`q2nd --radio-import MANIFEST CONFIG [--apply]` adds web radio stations to
+the Navidrome server (RADIO-IMPORT-001).
+
 ## Device builds
 
 The installed Q2 runs the paired player and portal with the q2-os firmware.
