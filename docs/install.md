@@ -42,8 +42,9 @@ ffmpeg -v error -n -f lavfi -i 'sine=frequency=550:duration=15' \
 ```
 
 Copy the file to `Q2Mainline/media/audiobooks/` on the card, creating the
-folders if needed. Safely eject the card and boot the Q2. From the home
-screen, open **Books → On This Card**, select **Generated First Listen** (or
+folders if needed. Safely eject the card and boot the Q2. With no Navidrome
+server set up, the Q2 starts on the **Navidrome Server** page; press Back to
+reach the home screen. From the home screen, open **Books → On This Card**, select **Generated First Listen** (or
 your book's title), and press Center on **Book Info**. Use headphones at low
 volume and check that Now Playing advances and pauses.
 

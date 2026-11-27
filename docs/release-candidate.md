@@ -133,9 +133,9 @@ Use the draft from a signed `stock-vX.Y.Z-rc.N` tag after a physical test of
 that exact `update.tar` from the stated starting firmware. Record stock
 installation, generated local playback, and recovery in the
 `hardware-qualification.json` format above. Keep that report private. The Wi-Fi driver
-source and Bluetooth controller firmware have separate provenance. The owner confirmed permission on
-2026-11-27 to redistribute the two pinned RTL8733BS Bluetooth files in the
-public GitHub stock release. The promotion check verifies the installed
+source and Bluetooth controller firmware have separate provenance. Redistribution of
+the two pinned RTL8733BS Bluetooth files in the public GitHub stock release is
+permitted. The promotion check verifies the installed
 `rtl8733bs_fw` and `rtl8733bs_config` against those exact approved digests
 and checks the bundled OS provenance notice. The permission covers that pair.
 Install `squashfs-tools` on the promotion host for the readback.
