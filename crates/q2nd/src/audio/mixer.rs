@@ -54,7 +54,7 @@ const FIXED_VCP: c_uint = 1;
 /// which DS1155F2 table 4-2 rates for signals below about −11 dB of the
 /// 1.73 Vrms full scale (0.49 Vrms, nominal at 16 Ω): 0.5 Vrms full scale
 /// is at that edge, so the codec keeps [`EFFICIENT_FLOOR`] of attenuation.
-/// Whether a peak then clips into 16 Ω is a device check (docs/device.md).
+/// Whether a peak then clips into 16 Ω is a device check (q2-os docs/hardware.md).
 pub fn operating_point(level: HeadphonePower) -> (c_uint, c_uint) {
     match level {
         HeadphonePower::Efficient => (0, FIXED_VCP),

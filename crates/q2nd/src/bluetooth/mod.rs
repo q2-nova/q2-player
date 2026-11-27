@@ -921,7 +921,7 @@ impl Drop for FakeWire {
     }
 }
 
-/// The combo chip's SDIO host: its driver binding powers both radios' enables (device.md).
+/// The combo chip's SDIO host: its driver binding powers both radios' enables (q2-os docs/hardware.md).
 const WIFI_SLOT: &str = "/sys/bus/platform/devices/13460000.mmc";
 
 fn firmware(_blocking: &Blocking, options: &Options) -> Option<(Vec<u8>, Vec<u8>)> {

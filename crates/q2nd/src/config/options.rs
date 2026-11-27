@@ -54,8 +54,8 @@ pub enum ReplayGainMode {
 }
 
 /// The headphone amplifiers' operating point: the CS43131s' full-scale
-/// output and class-H rail mode (kernel patch 0187; docs/device.md,
-/// "CS43131 analog output stage"). A higher level drives demanding
+/// output and class-H rail mode (kernel patch 0187; q2-os docs/hardware.md,
+/// "Audio"). A higher level drives demanding
 /// headphones louder and costs more power. Efficient plays each volume
 /// step as Standard up to its own maximum; High and Maximum are 4.8 and
 /// 6 dB louder at every step.
