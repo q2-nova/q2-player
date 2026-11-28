@@ -147,8 +147,8 @@ nothing, and windows advance only on a decode or a transfer write. One mutex
 guards the rings, and only fixed-size memory updates happen under it: no file
 I/O, allocation or formatting. Transfer threads read `/proc/meminfo` outside
 it, at most once a second. The host test
-`overhead_per_packet_is_bounded_on_the_host` fails above 50 µs a packet
-enabled or 5 µs disabled.
+`overhead_per_packet_is_bounded_on_the_host` fails above 50 µs of thread
+CPU time a packet enabled or 5 µs disabled.
 
 ## Getting it out
 

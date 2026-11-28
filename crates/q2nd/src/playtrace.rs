@@ -1583,7 +1583,10 @@ pub(crate) mod tests {
             let mut source = TimedSource::new(Box::new(Fast), tap.reads.clone());
             let mut buf = [0u8; 16];
             const PACKETS: u32 = 200_000;
-            let started = std::time::Instant::now();
+            // Thread CPU time, not wall time: a loaded host or emulator
+            // deschedules the thread, and that time is not the trace's cost.
+            let cpu = || crate::platform::system::clock_nanos(libc::CLOCK_THREAD_CPUTIME_ID).unwrap();
+            let started = cpu();
             for _ in 0..PACKETS {
                 let _t0 = tap.now();
                 if enabled { source.read(&mut buf).unwrap(); source.read(&mut buf).unwrap(); }
@@ -1593,7 +1596,7 @@ pub(crate) mod tests {
                 let t3 = tap.now();
                 tap.written(t3, 1024, 44100, Some(17000), &[], 0);
             }
-            (started.elapsed().as_nanos() as u64 / u64::from(PACKETS), trace.snapshot().events_total)
+            ((cpu() - started) / u64::from(PACKETS), trace.snapshot().events_total)
         };
         let (on, events) = run(true);
         let (off, _) = run(false);
