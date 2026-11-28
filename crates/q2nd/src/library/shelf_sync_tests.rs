@@ -277,7 +277,7 @@ pub(crate) fn shelf(server: &AbsServer, label: &str) -> Shelf {
     Shelf { lib, root }
 }
 fn wait<T>(future: impl std::future::Future<Output = T>) -> T {
-    crate::rt::Ui::new().unwrap().block_on(async { tokio::time::timeout(Duration::from_secs(60), future).await.expect("bounded sync") })
+    crate::rt::Ui::new().unwrap().block_on(async { tokio::time::timeout(crate::library::TEST_LIVENESS, future).await.expect("bounded sync") })
 }
 /// One round of both libraries, as the automatic worker runs it.
 pub(crate) fn sync(lib: &Arc<Library>, round: &SyncRound) -> Result<(), LibError> {
