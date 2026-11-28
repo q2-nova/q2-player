@@ -44,7 +44,7 @@ fn fixture_setup(name: &str, codec: &str, setup: Option<fn(&mut q2_bt::fake::Fak
 
 impl Fixture {
     fn until(&self, what: &str, done: impl Fn(&State) -> bool) -> State {
-        let limit = Instant::now() + Duration::from_secs(20);
+        let limit = Instant::now() + crate::library::TEST_LIVENESS;
         loop {
             let state = self.bluetooth.state();
             if done(&state) { return state }
@@ -67,7 +67,18 @@ impl Fixture {
         self.bluetooth.scan();
         let found = self.until("scan", |s| !s.scanning && s.found.len() == 3 && s.found.iter().all(|d| d.name != "Unnamed Device"));
         self.bluetooth.connect(found.found[0].addr);
-        self.until("stream", |s| s.stream.is_some())
+        let state = self.until("stream", |s| s.stream.is_some());
+        self.routed();
+        state
+    }
+    /// Waits for the output callback. The thread publishes the stream before
+    /// it opens the endpoint; the player opens its PCM on this callback.
+    fn routed(&self) {
+        let limit = Instant::now() + crate::library::TEST_LIVENESS;
+        while self.route.lock().unwrap().last() != Some(&true) {
+            assert!(Instant::now() < limit, "the output was not routed: {:?}", self.route.lock().unwrap());
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 }
 
@@ -110,7 +121,9 @@ fn volume_levels_map_both_ways_without_drift() {
 
 #[test]
 fn absolute_volume_follows_the_headphones_saves_per_device_and_restores_on_connect() {
-    let f = fixture("volume");
+    let mut f = fixture("volume");
+    let kept = KeptFake::default();
+    f.bluetooth.options.fake_kept = Some(kept.clone());
     let state = f.pair();
     let addr = state.connected().unwrap();
     // No saved volume: the headphones' own level (0x20 of 127) is taken, once.
@@ -118,8 +131,11 @@ fn absolute_volume_follows_the_headphones_saves_per_device_and_restores_on_conne
     let output = state.output.unwrap();
     assert_eq!((output.addr, output.name.as_str(), output.saved.volume), (addr, "Fixture Headphones", Some(from_level(0x20))));
     // Player and headphone changes both publish a revision.
+    let sets = kept.volume_sets.load(Ordering::Acquire);
     f.bluetooth.set_volume(addr, 70);
-    f.until("volume set", |s| s.output.as_ref().is_some_and(|o| o.saved.volume == Some(70)));
+    // The state names the new level before the command reaches the headphones;
+    // a press is counted from the level they hold, so wait for them to hold it.
+    f.until("volume set", |s| kept.volume_sets.load(Ordering::Acquire) > sets && s.output.as_ref().is_some_and(|o| o.saved.volume == Some(70)));
     // A press on the headphones: their new level, counted.
     f.keys.fetch_add(1, Ordering::AcqRel);
     let volume = from_level(to_level(70) + 8);
@@ -161,21 +177,26 @@ fn volume_limit_reaches_the_headphone_amplifier_at_pairing_on_keys_and_after_rec
     f.bluetooth.set_volume_limit(40);
     let addr = f.pair().connected().unwrap();
     let at = |level| move |s: &State| s.output.as_ref().is_some_and(|o| o.absolute && o.saved.volume == Some(level));
+    // A level the player sets is published before the headphones apply it,
+    // and a press on them counts from the level they hold; the host does not
+    // send a level again while the same one is in flight. Before each press
+    // and the disconnect, wait for the headphones to have received the sets.
+    let applied = |sets: u32, level| { let kept = kept.clone(); move |s: &State| kept.volume_sets.load(Ordering::Acquire) >= sets && at(level)(s) };
     f.until("initial high amplifier corrected", at(40));
     f.bluetooth.set_volume_limit(23);
-    f.until("live reduction confirmed", at(23));
+    f.until("live reduction confirmed", applied(2, 23));
     f.bluetooth.set_volume_limit(90);
     f.keys.fetch_add(1, Ordering::AcqRel);
     f.until("key starts from the capped level", at(from_level(to_level(23) + 8)));
     f.bluetooth.set_volume(addr, 80);
-    f.until("higher listening level", at(80));
+    f.until("higher listening level", applied(3, 80));
     f.bluetooth.disconnect();
     f.until("disconnected", |s| s.link == Link::Idle && s.output.is_none());
     f.bluetooth.set_volume_limit(16);
     f.bluetooth.connect(addr);
-    f.until("saved high amplifier corrected on reconnect", at(16));
+    f.until("saved high amplifier corrected on reconnect", applied(4, 16));
     f.keys.fetch_add(1, Ordering::AcqRel);
-    f.until("key corrected at the amplifier", |s| kept.volume_sets.load(Ordering::Acquire) >= 5 && at(16)(s));
+    f.until("key corrected at the amplifier", applied(5, 16));
     f.bluetooth.shutdown();
     let (fake, _) = kept.take().unwrap();
     assert_eq!(fake.log.volumes_set, [40, 23, 80, 16, 16].map(to_level));
@@ -280,7 +301,7 @@ fn headphones_switched_off_mid_stream_fail_the_write_and_leave_no_notice() {
     let blocking = Blocking::dedicated_thread();
     let writer = pcm::Writer::open(&f.endpoint, 44100, 2, 400_000).unwrap();
     let block = coder::tone(4410);
-    let limit = Instant::now() + Duration::from_secs(20);
+    let limit = Instant::now() + crate::library::TEST_LIVENESS;
     let failed = loop {
         assert!(Instant::now() < limit, "the write did not fail: {:?}", f.bluetooth.state().link);
         // Once audio is playing, the headphones are switched off.
@@ -325,7 +346,7 @@ fn a_restart_reconnects_to_the_last_headphones_and_forget_removes_them() {
 impl Fixture {
     fn status_line(&self) -> String { std::fs::read_to_string(&self.status).unwrap_or_default() }
     fn until_status(&self, what: &str, done: impl Fn(&str) -> bool) -> String {
-        let limit = Instant::now() + Duration::from_secs(20);
+        let limit = Instant::now() + crate::library::TEST_LIVENESS;
         loop {
             let line = self.status_line();
             if done(&line) { return line }
@@ -432,6 +453,7 @@ fn a_computer_that_takes_audio_is_checked_paired_and_played_to() {
     assert!(!computer.is_audio() && !computer.takes_audio(), "only its SDP records show the sink");
     f.bluetooth.connect_checked(computer.addr);
     let state = f.until("stream", |s| s.stream.is_some());
+    f.routed();
     assert_eq!((state.stream.unwrap().codec.kind(), state.summary(), state.notice.as_str()), (Kind::Aac, "Fixture Computer".into(), ""));
     assert_eq!(state.paired.iter().map(|d| d.class).collect::<Vec<_>>(), [0x7c_0104]);
     assert_eq!(state.diagnostics.sink_checks, (1, 1, 0));
@@ -878,7 +900,7 @@ fn the_codec_and_why_it_was_chosen_are_published() {
 /// the thread sends them, as `main` delivers them.
 fn pump(app: &mut crate::ui::App, rx: &std::sync::mpsc::Receiver<crate::ui::UiMsg>, what: &str, done: impl Fn(&crate::ui::App) -> bool) {
     let mut platform = crate::platform::Headless { last: None };
-    let limit = Instant::now() + Duration::from_secs(20);
+    let limit = Instant::now() + crate::library::TEST_LIVENESS;
     while !done(app) {
         assert!(Instant::now() < limit, "{what}: {:?}", app.bluetooth.state().link);
         if let Ok(message) = rx.recv_timeout(Duration::from_millis(5)) { app.handle(message, &mut platform); }
