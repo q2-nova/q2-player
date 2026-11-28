@@ -32,7 +32,11 @@ rustup toolchain install "$nightly" --profile minimal --component rust-src
 cargo "+$nightly" fetch --locked
 cargo "+$nightly" fetch --locked --manifest-path \
   build/relink-inputs/compiler/install/lib/rustlib/src/rust/library/Cargo.toml
+cargo install --locked cargo-about --version 0.9.3 --features cli
 ```
+
+The target builder writes the executables' third-party notices with that
+cargo-about release.
 
 Compare the fetched `component-lock.json` and `producer-inputs.json` with
 the source manifest. If a stock build used independently prepared
