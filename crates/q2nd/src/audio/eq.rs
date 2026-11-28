@@ -132,10 +132,6 @@ impl Biquad {
         for v in s { if v.abs()<1e-24 { *v=0.0; } }
         y
     }
-    fn magnitude_squared(&self, c: f64, c2: f64) -> f64 {
-        let power = |v: [f64;3]| v.iter().map(|x|x*x).sum::<f64>() + 2.0*(v[0]*v[1]+v[1]*v[2])*c + 2.0*v[0]*v[2]*c2;
-        power(self.b).max(1e-30)/power([1.0,self.a[0],self.a[1]]).max(1e-30)
-    }
     fn stereo(&mut self, x: [f64; 2]) -> [f64; 2] {
         let [left, right] = self.state.as_mut_slice() else { unreachable!("stereo filter history") };
         // Independent channels share coefficients. Keep each channel's scalar
@@ -156,6 +152,69 @@ impl Biquad {
         y
     }
 }
+/// A biquad's power gain |H|² as a ratio of quadratics in s = sin²(ω/2), 0
+/// at 0 Hz and 1 at Nyquist. In cos ω the squared terms cancel near 0 Hz
+/// and lose most of their digits; in s the constant term is the squared
+/// coefficient sum, which keeps them.
+#[derive(Clone, Copy)]
+struct Power { num: [f64; 3], den: [f64; 3] }
+impl Power {
+    fn new(f: &Biquad) -> Self {
+        let q = |v: [f64; 3]| [(v[0]+v[1]+v[2]).powi(2), -4.0*(v[1]*(v[0]+v[2])+4.0*v[0]*v[2]), 16.0*v[0]*v[2]];
+        Self { num: q(f.b), den: q([1.0, f.a[0], f.a[1]]) }
+    }
+    fn at_hz(&self, hz: f64, rate: u32) -> f64 { self.at((std::f64::consts::PI*hz/rate as f64).sin().powi(2)) }
+    fn at(&self, s: f64) -> f64 {
+        let q = |k: [f64; 3]| (k[2]*s+k[1])*s+k[0];
+        q(self.num).max(1e-30)/q(self.den).max(1e-30)
+    }
+    /// The s where the gain turns, at most two: the roots of the quadratic
+    /// N′D − ND′ (its cubic terms cancel). Between them it is monotonic.
+    fn turns(&self) -> impl Iterator<Item = f64> {
+        let ([n0, n1, n2], [d0, d1, d2]) = (self.num, self.den);
+        let (a, b, c) = (n2*d1-n1*d2, 2.0*(n2*d0-n0*d2), n1*d0-n0*d1);
+        let disc = b*b-4.0*a*c;
+        let q = -0.5*(b+b.signum()*disc.max(0.0).sqrt());
+        let roots = if a == 0.0 { [-c/b, f64::NAN] } else if disc < 0.0 { [f64::NAN; 2] } else { [q/a, c/q] };
+        roots.into_iter().filter(|s| (0.0..=1.0).contains(s))
+    }
+}
+
+/// Power gains within this factor (0.01 dB) of each other settle the peak search.
+const PEAK_TOLERANCE: f64 = 1.002_305_238_077_899_7;
+
+/// An upper bound on the chain's largest power gain from 0 Hz to Nyquist,
+/// at most PEAK_TOLERANCE above it, and never below 1. The search starts
+/// from 0 Hz, Nyquist and every filter's turning points. Each filter is
+/// then monotonic between neighbouring points, so the product of each
+/// filter's larger end value bounds the chain between them. An interval
+/// whose bound is within the tolerance of the largest gain found at a
+/// point is settled; any other is halved at a new point.
+fn peak_power(filters: &[Biquad]) -> f64 {
+    let powers: Vec<_> = filters.iter().map(Power::new).collect();
+    let mut points: Vec<f64> = [0.0, 1.0].into_iter().chain(powers.iter().flat_map(Power::turns)).collect();
+    points.sort_by(f64::total_cmp);
+    points.dedup();
+    // Each point's gain through each filter, `n` per point.
+    let n = powers.len();
+    let mut gains: Vec<f64> = points.iter().flat_map(|&s| powers.iter().map(move |p| p.at(s))).collect();
+    let at = |gains: &[f64], k: usize| gains[k*n..(k+1)*n].iter().product::<f64>();
+    let mut found = (0..points.len()).map(|k| at(&gains, k)).fold(1.0, f64::max);
+    let mut open: Vec<_> = (1..points.len()).map(|k| (points[k-1], k-1, points[k], k)).collect();
+    let mut peak: f64 = 1.0;
+    while let Some((lo, i, hi, j)) = open.pop() {
+        let bound = (0..n).map(|f| gains[i*n+f].max(gains[j*n+f])).product::<f64>();
+        let mid = 0.5*(lo+hi);
+        if bound <= found*PEAK_TOLERANCE || mid <= lo || mid >= hi { peak = peak.max(bound); continue; }
+        let k = gains.len()/n;
+        gains.extend(powers.iter().map(|p| p.at(mid)));
+        found = found.max(at(&gains, k));
+        open.push((lo, i, mid, k));
+        open.push((mid, k, hi, j));
+    }
+    peak
+}
+
 #[derive(Clone, Default)]
 struct Chain { filters: Vec<Biquad>, gain: f64 }
 impl Chain {
@@ -173,16 +232,11 @@ impl Chain {
         specs.retain(|f| f.hz < rate as f64 * 0.49 && f.gain != 0.0);
         let filters: Vec<_> = specs.iter().map(|f|Biquad::new(f,rate,channels)).collect();
         if filters.is_empty() { return Self {filters,gain:10f64.powf(preamp/20.0)}; }
-        let mut peak: f64 = 1.0;
-        for hz in (0..=1024).map(|i| 10.0*(rate as f64*0.05).powf(i as f64/1024.0))
-            .chain(specs.iter().map(|f|f.hz)) {
-            let c = (std::f64::consts::TAU*hz/rate as f64).cos();
-            let power = filters.iter().map(|f|f.magnitude_squared(c,2.0*c*c-1.0)).product::<f64>();
-            peak = peak.max(power);
-        }
-        // Preserve the export's preamp when more conservative. Reserve another
-        // dB for the sampled response; final PCM conversion saturates transients.
-        if !filters.is_empty() { preamp = preamp.min(-10.0*peak.log10()-1.0); }
+        let peak = peak_power(&filters);
+        // Preserve the export's preamp when more conservative. One further dB
+        // is margin for transients, which the response does not bound; final
+        // PCM conversion saturates them.
+        preamp = preamp.min(-10.0*peak.log10()-1.0);
         Self { filters, gain: 10f64.powf(preamp/20.0) }
     }
     fn sample(&mut self, input: f64, ch: usize) -> f64 {
@@ -236,9 +290,8 @@ impl Response {
         let headphone=Chain::new(&Settings {headphone_enabled:true,headphone:settings.headphone.clone(),..Default::default()},rate,0);
         let graphic=Chain::new(&Settings {graphic_enabled:true,bands:settings.bands,..Default::default()},rate,0);
         let combined=Chain::new(&settings,rate,0);
-        let curve=|chain:&Chain| hz.iter().map(|f| {
-            let c=(std::f64::consts::TAU*f/rate as f64).cos();
-            chain.filters.iter().map(|filter|10.0*filter.magnitude_squared(c,2.0*c*c-1.0).log10()).sum()
+        let curve=|chain:&Chain| hz.iter().map(|&f| {
+            chain.filters.iter().map(|filter|10.0*Power::new(filter).at_hz(f,rate).log10()).sum()
         }).collect();
         Self {headphone_db:curve(&headphone),graphic_db:curve(&graphic),combined_db:curve(&combined),
             preamp_db:20.0*combined.gain.log10(),hz}
@@ -307,6 +360,79 @@ mod tests {
         (any::<bool>(), proptest::array::uniform10(-12i8..=12), any::<bool>(), proptest::option::of(profile))
             .prop_map(|(graphic_enabled, bands, headphone_enabled, headphone)| Settings { graphic_enabled, bands, headphone_enabled, headphone })
     }
+    /// The decoders' standard sample rates: every AAC rate and the higher
+    /// FLAC, WAV and ALAC rates.
+    const RATES: [u32; 15] = [7350, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200, 96000, 176400, 192000];
+    /// The chain's largest power gain on 2 × (points + 1) frequencies from
+    /// 0 Hz to Nyquist, uniform in Hz and logarithmic from 1 Hz, and its
+    /// frequency. Each filter is evaluated as a complex ratio, independent
+    /// of `Power`. 2^14 points space the uniform grid 1/16 of the
+    /// narrowest valid resonance apart (Q 20 at 0.49 × the rate) and the
+    /// logarithmic grid 1/70 of it at low frequencies.
+    fn reference_peak(chain: &Chain, rate: u32, points: usize) -> (f64, f64) {
+        let nyquist = rate as f64 / 2.0;
+        let power = |hz: f64| -> f64 {
+            let w = std::f64::consts::TAU * hz / rate as f64;
+            let (z1, z2) = ((w.cos(), -w.sin()), ((2.0 * w).cos(), -(2.0 * w).sin()));
+            chain.filters.iter().map(|f| {
+                let num = (f.b[0] + f.b[1] * z1.0 + f.b[2] * z2.0, f.b[1] * z1.1 + f.b[2] * z2.1);
+                let den = (1.0 + f.a[0] * z1.0 + f.a[1] * z2.0, f.a[0] * z1.1 + f.a[1] * z2.1);
+                (num.0 * num.0 + num.1 * num.1) / (den.0 * den.0 + den.1 * den.1)
+            }).product()
+        };
+        (0..=points).map(|i| nyquist * i as f64 / points as f64)
+            .chain((0..=points).map(|i| nyquist.powf(i as f64 / points as f64)))
+            .map(|hz| (power(hz), hz)).fold((0.0, 0.0), |best, p| if p.0 > best.0 { p } else { best })
+    }
+    /// Valid settings weighted toward the sharpest responses: besides values
+    /// uniform over each range, a Q from 15 to 20, a gain within ±2 dB and
+    /// a center from 0.4 to 0.49 × one of `RATES`.
+    fn sharp_settings() -> impl proptest::strategy::Strategy<Value = Settings> {
+        use proptest::prelude::*;
+        let hz = prop_oneof![10.0f64..=24000.0, (1.0f64..=24000f64.log10()).prop_map(|e| 10f64.powf(e)),
+            (0..RATES.len(), 0.4f64..0.49).prop_map(|(r, f)| (RATES[r] as f64 * f).min(24000.0))];
+        let filter = (prop_oneof![Just(Kind::Peak), Just(Kind::LowShelf), Just(Kind::HighShelf)], hz,
+            prop_oneof![-30.0f64..=30.0, -2.0f64..=2.0], prop_oneof![0.1f64..=20.0, 15.0f64..=20.0])
+            .prop_map(|(kind, hz, gain, q)| Filter { kind, hz, gain, q });
+        let profile = (-60.0f64..=0.0, proptest::collection::vec(filter, 1..=20))
+            .prop_map(|(preamp, filters)| Profile { name: "generated".into(), source: "generated".into(), preamp, filters });
+        (any::<bool>(), proptest::array::uniform10(-12i8..=12), any::<bool>(), proptest::option::of(profile))
+            .prop_map(|(graphic_enabled, bands, headphone_enabled, headphone)| Settings { graphic_enabled, bands, headphone_enabled, headphone })
+    }
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig { cases: 64, failure_persistence: None, ..proptest::prelude::ProptestConfig::default() })]
+        /// At every decoder rate the preamp holds the combined response a dB
+        /// below full scale at every frequency of the dense reference, and
+        /// lowers the gain at most 0.05 dB more than the reference peak needs.
+        #[test]
+        fn preamp_bounds_the_dense_reference_peak_at_every_rate(settings in sharp_settings()) {
+            let profile = settings.headphone.as_ref().filter(|_| settings.headphone_enabled).map_or(0.0, |p| p.preamp);
+            for rate in RATES {
+                let chain = Chain::new(&settings, rate, 0);
+                if chain.filters.is_empty() { continue; }
+                let preamp = 20.0 * chain.gain.log10();
+                let (peak, hz) = reference_peak(&chain, rate, 1 << 14);
+                let peak = 10.0 * peak.max(1.0).log10();
+                proptest::prop_assert!(peak + preamp <= -1.0 + 1e-9, "{:+.4} dB at {:.2} Hz, {} Hz stream", peak + preamp, hz, rate);
+                proptest::prop_assert!(preamp >= profile.min(-peak - 1.0) - 0.05, "preamp {:.4} dB for a {:.4} dB peak, {} Hz stream", preamp, peak, rate);
+            }
+        }
+    }
+    /// A sharp low shelf near Nyquist: its +8.34 dB peak at 3,567 Hz is
+    /// narrower than the spacing of 1,025 logarithmic frequencies there.
+    #[test]
+    fn a_sharp_shelf_near_nyquist_keeps_headroom() {
+        let filters = vec![Filter { kind: Kind::LowShelf, hz: 3549.98, gain: -1.068, q: 19.64 }];
+        let settings = Settings { headphone_enabled: true, headphone: Some(Profile { name: "generated".into(), source: "generated".into(), preamp: 0.0, filters }), ..Default::default() };
+        let mut chain = Chain::new(&settings, 8000, 1);
+        let (peak, hz) = reference_peak(&chain, 8000, 1 << 14);
+        let (peak, preamp) = (10.0 * peak.log10(), 20.0 * chain.gain.log10());
+        assert!((peak - 8.338).abs() < 0.001 && (hz - 3567.25).abs() < 0.5, "{peak} dB at {hz} Hz");
+        assert!(peak + preamp <= -1.0 + 1e-9 && peak + preamp >= -1.01, "{preamp} dB preamp");
+        let response = Response::new(&settings, 8000, 512);
+        assert!(response.combined_db.iter().all(|db| db + response.preamp_db <= -1.0 + 1e-9));
+        assert!(20.0 * tone(&mut chain, 8000, hz).log10() < -0.99);
+    }
     proptest::proptest! {
         #![proptest_config(proptest::prelude::ProptestConfig { cases: 64, failure_persistence: None, ..proptest::prelude::ProptestConfig::default() })]
         /// Every setting the UI or an AutoEQ import can produce, at every
@@ -323,7 +449,7 @@ mod tests {
             use proptest::prelude::*;
             let response = Response::new(&settings, rate, 512);
             for (hz, db) in response.hz.iter().zip(&response.combined_db) {
-                // One dB is reserved for the response between the sampled points.
+                // The plotted frequencies; the dense reference property covers the rest.
                 prop_assert!(db + response.preamp_db <= 0.0, "{:.2} dB at {:.0} Hz, {} Hz stream", db + response.preamp_db, hz, rate);
             }
             let mut eq = Equalizer::new(settings.clone());
@@ -581,8 +707,7 @@ mod tests {
             for line in reference.lines().skip(1) {
                 let (hz,db)=line.split_once('\t').unwrap();
                 let hz=hz.parse::<f64>().unwrap();let db=db.parse::<f64>().unwrap();
-                let c=(std::f64::consts::TAU*hz/44100.0).cos();
-                let actual:f64=chain.filters.iter().map(|f|10.0*f.magnitude_squared(c,2.0*c*c-1.0).log10()).sum();
+                let actual:f64=chain.filters.iter().map(|f|10.0*Power::new(f).at_hz(hz,44100).log10()).sum();
                 // Upstream CSV retains optimizer precision; TXT rounds filter
                 // values to integer Hz/0.1 dB/0.01 Q. Compare shape, no preamp.
                 assert!((actual-db).abs()<0.25,"{} {hz} Hz: {actual} vs {db}",entry.name());

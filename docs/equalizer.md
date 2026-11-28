@@ -73,11 +73,15 @@ correction or measure headphones.
   the decoded sample rate, and filters at or above 0.49 × the rate are left
   out, so the top graphic bands have no effect on low-rate radio streams.
   Coefficients and filter state are f64, with state per channel.
-- **Headroom.** The combined response is sampled at 1,025 logarithmic
-  frequencies up to half the sample rate and at every filter's center; the
-  gain is lowered by the peak plus 1 dB, or by the profile's preamp if that
-  is lower. This is not a limiter: a transient can still exceed full scale
-  and is clamped at the final conversion.
+- **Headroom.** The gain is lowered by the combined response's peak plus
+  1 dB, or by the profile's preamp if that is lower, so a steady tone at
+  any frequency from 0 Hz to half the sample rate stays at least 1 dB below
+  full scale. The peak is an upper bound at most 0.01 dB above the true
+  maximum: the search divides the band at each filter's turning points,
+  between which every filter is monotonic, and halves intervals until each
+  interval's bound is within 0.01 dB of the largest gain found. A peak
+  below 0 dB counts as 0 dB. This is not a limiter: a transient can still
+  exceed full scale and is clamped at the final conversion.
 - Decoded samples stay floating point through the EQ. ReplayGain and volume
   are applied at the final saturating conversion ([ReplayGain](replaygain.md)).
 - A settings change crossfades from the old filter chain to the new one over
