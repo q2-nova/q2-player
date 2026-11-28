@@ -170,7 +170,7 @@ impl Source for Artists {
     fn media(&self) -> bool { true }
     fn load(self: Arc<Self>, lib: Arc<Library>, p: Policy) -> RowsTask {
         Box::pin(async move {
-            let idx = lib.fetch_async(calls::artists(), p).await?.value;
+            let idx = lib.music_page(calls::artists(), p, |card| Some(card.artists()).filter(|a| !a.index.is_empty())).await?.value;
             Ok(idx.all().map(artist_row).collect())
         })
     }
@@ -190,9 +190,14 @@ impl Source for Artist {
     }
     fn load(self: Arc<Self>, lib: Arc<Library>, p: Policy) -> RowsTask {
         Box::pin(async move {
-            let mut a = lib.clone().fetch_async(calls::artist(&self.id), p).await?.value;
+            let id = self.id.clone();
+            let listed = lib.music_page(calls::artist(&self.id), p, move |card| card.artist(&id)).await?;
+            let mut a = listed.value;
             a.album.sort_by(|x, y| y.year.cmp(&x.year).then_with(|| x.name.cmp(&y.name)));
-            let mut rows = vec![Row::link("Top Songs", Dest::TopSongs { artist: self.name.clone() }).key("#top").artist_art(&a.artist)];
+            // Top Songs is the server's; from the card, the artist is its albums.
+            let mut rows = if listed.card { Vec::new() } else {
+                vec![Row::link("Top Songs", Dest::TopSongs { artist: self.name.clone() }).key("#top").artist_art(&a.artist)]
+            };
             rows.extend(album_rows(lib, a.album, false).await?);
             Ok(rows)
         })
@@ -240,19 +245,10 @@ const CMD_SHUFFLE_ALBUMS: u32 = 11;
 /// Shuffle Albums queues whole albums until about this many songs.
 const SHUFFLE_ALBUM_SONGS: usize = 150;
 
-/// An album's songs in order, from the server or its download.
+/// An album's songs in order, from the server or, without it, the card.
 async fn album_songs(lib: Arc<Library>, id: String, p: Policy) -> Result<subsonic::AlbumWithSongs, LibError> {
-    let mut album = match lib.clone().fetch_async(calls::album(&id), p).await {
-        Ok(f) => f.value,
-        // Downloaded albums play without the server.
-        Err(e) => match lib.offline_collection_async("album".into(), id).await?.map(|(set, songs)| subsonic::AlbumWithSongs {
-            album: Album { id: set.id.clone(), name: set.name.clone(), artist: set.artist.clone(), cover_art: set.cover_art.clone(), ..Default::default() },
-            song: songs,
-        }) {
-            Some(album) => album,
-            None => return Err(e),
-        },
-    };
+    let call = calls::album(&id);
+    let mut album = lib.music_page(call, p, move |card| card.album(&id)).await?.value;
     for song in &mut album.song {
         if song.cover_art.as_deref().is_none_or(|id| id.is_empty()) {
             song.cover_art = album.album.cover_art.clone();
@@ -869,6 +865,14 @@ impl SearchResults {
         call
     }
 
+    /// A page of results: the server's, or without it the downloads that match.
+    async fn result(&self, lib: &Arc<Library>, page: u32, policy: Policy) -> Result<subsonic::SearchResult, LibError> {
+        let query = self.query.clone();
+        // The card's matches are one page.
+        lib.music_page(self.request(page), policy, move |card| card.search(&query).map(|found| if page == 0 { found } else { Default::default() }))
+            .await.map(|listed| listed.value)
+    }
+
     async fn rows(lib: Arc<Library>, result: subsonic::SearchResult) -> Rows {
         // IDs are only unique within their media class. Search also needs a
         // song identity independent of its position in a particular page.
@@ -891,7 +895,7 @@ impl Source for SearchResults {
     }
     fn load(self: Arc<Self>, lib: Arc<Library>, p: Policy) -> RowsTask {
         Box::pin(async move {
-            let result = lib.clone().fetch_async(self.request(0), p).await?.value;
+            let result = self.result(&lib, 0, p).await?;
             Self::rows(lib, result).await
         })
     }
@@ -900,7 +904,7 @@ impl Source for SearchResults {
     fn window_page(self: Arc<Self>, lib: Arc<Library>, page: u32, policy: Policy) -> WindowPageTask {
         Box::pin(async move {
             page.checked_mul(50).ok_or_else(|| LibError::Server("Search offset exceeds server range".into()))?;
-            let result = lib.clone().fetch_async(self.request(page), policy).await?.value;
+            let result = self.result(&lib, page, policy).await?;
             let more = result.artist.len() == 10 || result.album.len() == 20 || result.song.len() == 50;
             Ok((Self::rows(lib, result).await?, more).into())
         })
@@ -908,7 +912,7 @@ impl Source for SearchResults {
     /// Continue every result class, including artist/album-only matches.
     fn page(self: Arc<Self>, lib: Arc<Library>, page: u32) -> Option<PageTask> {
         Some(Box::pin(async move {
-            let result = lib.clone().fetch_async(self.request(page), Policy::NetworkFirst).await?.value;
+            let result = self.result(&lib, page, Policy::NetworkFirst).await?;
             let more = result.artist.len() == 10 || result.album.len() == 20 || result.song.len() == 50;
             Ok((Self::rows(lib, result).await?, more))
         }))
@@ -1421,6 +1425,10 @@ mod shuffle_preparation_tests;
 #[cfg(test)]
 #[path = "sources_random_tests.rs"]
 mod random_catalog_tests;
+
+#[cfg(test)]
+#[path = "sources_offline_tests.rs"]
+mod offline_browse_tests;
 
 #[cfg(test)]
 mod download_queue_tests {

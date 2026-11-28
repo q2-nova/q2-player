@@ -28,7 +28,7 @@ jobs:
           persist-credentials: false
       - name: Fault fixture, screen text and device transport controls
         working-directory: tests/ui
-        run: python3 -m unittest -v test_ux_faults test_ux_device_capture test_ux_polish_capture
+        run: python3 -m unittest -v test_ux_faults test_ux_device_capture test_ux_polish_capture test_offline_browse
       - name: Diagnostic receiver controls
         run: python3 -m unittest -v tests/perf/test_diagnostic_receiver.py
       - name: Factory device transport controls
@@ -56,6 +56,8 @@ jobs:
         run: python3 tests/ui/ux_faults.py --jobs 2 --out build/ux-faults/ci
       - name: Sleep-timer UI replay
         run: python3 tests/ui/sleep-timer-ui.py --binary target/debug/q2nd --out build/sleep-timer/ci
+      - name: Offline browsing journey
+        run: python3 tests/ui/offline_browse.py --binary target/debug/q2nd --out build/offline-browse/ci
       - name: Reject executor stalls
         if: always()
         run: |
@@ -67,7 +69,8 @@ jobs:
 
           pattern = re.compile(r'runtime (\w+): a task held the executor for (\d+) ms at (\S+)')
           stalls = []
-          for log in sorted([*pathlib.Path('build/ux-faults/ci').glob('*/player.log'), pathlib.Path('build/sleep-timer/ci/generated-ui.log')]):
+          for log in sorted([*pathlib.Path('build/ux-faults/ci').glob('*/player.log'), *pathlib.Path('build/offline-browse/ci').glob('*/player.log'),
+                             pathlib.Path('build/sleep-timer/ci/generated-ui.log')]):
               if not log.exists():
                   continue
               for match in pattern.finditer(log.read_text(errors='replace')):
@@ -107,3 +110,12 @@ jobs:
               echo '::endgroup::'
             fi
           done
+          if [ -f build/offline-browse/ci/result.json ] && jq -e '.passed | not' build/offline-browse/ci/result.json > /dev/null; then
+            echo '::group::offline-browse'
+            jq '.failures' build/offline-browse/ci/result.json
+            for log in build/offline-browse/ci/*/player.log; do
+              echo "== $log"
+              tail -n 60 "$log"
+            done
+            echo '::endgroup::'
+          fi

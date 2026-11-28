@@ -30,6 +30,7 @@ mod offline_art;
 mod download_intent;
 mod download_actions;
 mod offline_groups;
+pub(crate) mod offline_browse;
 mod mix_space;
 mod refill_log;
 mod prefetch;

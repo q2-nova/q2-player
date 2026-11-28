@@ -35,14 +35,37 @@ impl AlphabeticalAlbums {
     }
 
     pub(super) async fn page(&self, lib: Arc<Library>, page: u32, policy: Policy, shuffle_cmd: u32) -> Result<WindowPage, LibError> {
+        // Without the server, the downloaded albums (MUSIC-003), not the
+        // server's catalog: an album that is not on the card can't open.
+        if lib.music_from_card() {
+            if let Ok(Some(albums)) = lib.card_music(|card| Some(card.albums()).filter(|albums| !albums.is_empty())).await {
+                let total = albums.len() as u32 + 1;
+                let (start, count) = Self::window(total, page)?;
+                let albums = albums.into_iter().skip(start as usize).take(count as usize).collect();
+                return Self::rows(lib, albums, page, total, false, shuffle_cmd).await;
+            }
+        }
         let (catalog, stable) = self.catalog(&lib, policy).await?;
         let letters = stable && catalog.len() >= crate::ui::list::LETTER_MIN_ROWS && catalog.groups() > 1;
         let total = catalog.len().checked_add(u32::from(catalog.len() != 0))
             .ok_or_else(|| LibError::Server("Album catalog exceeds supported range".into()))?;
+        let (album_start, count) = Self::window(total, page)?;
+        let albums = lib.album_catalog_page(catalog, album_start, count).await?;
+        Self::rows(lib, albums, page, total, letters, shuffle_cmd).await
+    }
+
+    /// The albums of a 100-row page whose first row is Shuffle Albums: the
+    /// first album and how many.
+    fn window(total: u32, page: u32) -> Result<(u32, u32), LibError> {
         let start = page.checked_mul(100).ok_or_else(|| LibError::Server("Album offset exceeds supported range".into()))?;
         let leading = u32::from(start == 0 && total != 0);
-        let album_start = start.saturating_sub(u32::from(total != 0));
-        let albums = lib.album_catalog_page(catalog, album_start, 100 - leading).await?;
+        Ok((start.saturating_sub(u32::from(total != 0)), 100 - leading))
+    }
+
+    /// `page`'s rows; `window` has checked its offset.
+    async fn rows(lib: Arc<Library>, albums: Vec<subsonic::Album>, page: u32, total: u32, letters: bool, shuffle_cmd: u32) -> Result<WindowPage, LibError> {
+        let start = page * 100;
+        let leading = u32::from(start == 0 && total != 0);
         let mut rows = Vec::with_capacity(albums.len() + leading as usize);
         if leading != 0 { rows.push(Row::new("Shuffle Albums", RowAction::Cmd(shuffle_cmd)).key("#shuffle-albums")); }
         rows.extend(album_rows(lib, albums, true).await?);

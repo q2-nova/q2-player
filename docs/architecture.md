@@ -63,8 +63,11 @@ stall detector reports blocking on an executor at run time.
 
 The [library](../crates/q2nd/src/library/) owns the card database, server
 response cache, artwork and media files. Cached pages can appear immediately
-while a server refresh runs. Navidrome album catalog sync reuses the catalog
-until the server's scan marker changes. Audiobookshelf sync checks library
+while a server refresh runs. While Navidrome can't be used, Artists, an
+artist, Albums, an album and Search list the downloaded music, read from the
+card database ([offline browsing](../crates/q2nd/src/library/offline_browse.rs)).
+Navidrome album catalog sync reuses the catalog until the server's scan
+marker changes. Audiobookshelf sync checks library
 markers and page ETags, with a full resync for changes a marker misses.
 
 The [audio source](../crates/q2nd/src/audio/source.rs) tries a download, then

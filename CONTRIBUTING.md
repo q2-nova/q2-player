@@ -37,7 +37,7 @@ These run when a pull request changes the files they cover:
 | --- | --- |
 | Player lint | Clippy with the runtime rules, 64-bit atomic use, and the clippy negative control |
 | Simulator first listen | Generated card playback, Offline Mode and an Audiobookshelf journey in the native simulator |
-| UX journeys | Fault and sleep-timer journeys in the simulator |
+| UX journeys | Fault, sleep-timer and offline browsing journeys in the simulator |
 | Portal sign-in journeys | Wi-Fi sign-in flows against generated portals |
 | PGO and startup profile controls | The profile-guided build and startup read-ahead tooling |
 
