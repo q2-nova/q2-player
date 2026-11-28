@@ -1281,8 +1281,10 @@ mod tests {
         lib.db_post(move |_,_| {entered.send(()).unwrap();continue_db.recv_timeout(crate::library::TEST_LIVENESS).unwrap();});
         blocked.recv_timeout(crate::library::TEST_LIVENESS).unwrap();
         lib.downloads.set_paused(true);
-        until(||lib.downloads.current.lock().unwrap().is_none() && lib.downloads.saved_key().is_some());
-        assert_eq!(Arc::strong_count(&lib),1,"paused transfer must retire even while the database is held");
+        // The coordinator clears `current` before its task drops its library
+        // handle, so wait for that drop too. A transfer that waited for the
+        // held database would never drop it.
+        until(||lib.downloads.current.lock().unwrap().is_none() && lib.downloads.saved_key().is_some() && Arc::strong_count(&lib)==1);
         release_db.send(()).unwrap();first_release.send(()).unwrap();
         lib.downloads.set_paused(false);
         lib.downloads.wake();
