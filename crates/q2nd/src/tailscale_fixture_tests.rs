@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::os::unix::fs::PermissionsExt;
 
 pub(super) fn until(mut predicate: impl FnMut() -> bool) {
-    let deadline=Instant::now()+Duration::from_secs(4);
+    let deadline=Instant::now()+crate::library::TEST_LIVENESS;
     while !predicate() {
         assert!(Instant::now()<deadline,"owned lifecycle gate timed out");
         std::thread::sleep(Duration::from_millis(1));

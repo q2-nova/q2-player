@@ -54,7 +54,7 @@ fn stop_during_disable_joins_both_children_and_discards_queued_reenable() {
     let stopping=std::thread::spawn(move||{t.stop();assert!(done.send(t).is_ok());});
     until(||control.inner.lock().unwrap().start.is_none());
     assert!(finished.try_recv().is_err());
-    f.release();let mut t=finished.recv_timeout(Duration::from_secs(4)).unwrap();stopping.join().unwrap();
+    f.release();let mut t=finished.recv_timeout(crate::library::TEST_LIVENESS).unwrap();stopping.join().unwrap();
     t.set_enabled(true);t.stop();assert!(t.worker.inner.lock().unwrap().thread.is_none());
     assert_eq!(f.pids("daemon-pids").len(),1);assert!(!f.root.join("live").exists());
     for pid in f.pids("daemon-pids").into_iter().chain(f.pids("cli-pids")){reaped(pid);}
@@ -65,7 +65,7 @@ fn successor_joins_retired_completion_without_blocking_the_request_caller() {
     let root=tests::fixture();let mut t=Tailscale::at_socket(root.clone(),root.join("state"),true,false,root.join("s"));
     let (release,gate)=mpsc::channel();let (entered,waiting)=mpsc::channel();
     let predecessor=crate::rt::io().spawn(async move {entered.send(()).unwrap();crate::rt::spawn_blocking(move |_|gate.recv().unwrap()).await.unwrap();});
-    waiting.recv_timeout(Duration::from_secs(2)).unwrap();
+    waiting.recv_timeout(crate::library::TEST_LIVENESS).unwrap();
     // Model a retired owner's final epilogue. Its business work is complete,
     // but the successor must retain/join the actual thread completion token.
     t.worker.inner.lock().unwrap().thread=Some(predecessor);
