@@ -909,9 +909,14 @@ mod tests {
         config.server.password = "synthetic-only".into();
         config
     }
+    /// A library without its workers: the test drives every transfer. With
+    /// the download owner running, a response that brought the library
+    /// online could let the owner start a queued request beside the test's
+    /// own, against the test's fixture or, after the test, a port another
+    /// test's fixture has taken.
     fn fixture(base: &str) -> Arc<Library> {
         let root = super::super::generated_test_directory("music-cover");
-        Library::open(Paths::new(root), &config(base), Arc::new(|_| {}))
+        Library::create(Paths::new(root), &config(base), Arc::new(|_| {})).0
     }
     fn song(id: &str, art: bool) -> subsonic::Song {
         subsonic::Song {
