@@ -1100,7 +1100,7 @@ mod tests {
     fn probe_missing_socket_is_separate_from_request_or_response_wait() {
         let dir = fixture();
         let mut phases = Vec::new();
-        let result = observed_status(&dir.join("missing.sock"), Duration::from_millis(50), Some(&mut |p| phases.push(p)));
+        let result = observed_status(&dir.join("missing.sock"), crate::library::TEST_LIVENESS, Some(&mut |p| phases.push(p)));
         let error = result.unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
         assert_eq!(poll_interval(true, false, false, Some(Duration::from_secs(6)), error.kind() == io::ErrorKind::NotFound), SOCKET_START_POLL);
@@ -1121,14 +1121,14 @@ mod tests {
             let n = c.read(&mut request).unwrap();
             assert!(request[..n].starts_with(b"GET /localapi/v0/status?peers=false HTTP/1.0"));
             c.write_all(b"HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n").unwrap();
-            assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), ProbePhase::FirstResponse);
+            assert_eq!(rx.recv_timeout(crate::library::TEST_LIVENESS).unwrap(), ProbePhase::FirstResponse);
             // Split the header terminator across two reads, with explicit
             // callback synchronization rather than guessed sleep delays.
             c.write_all(b"\r\n{\"BackendState\":\"Running\"}").unwrap();
-            assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), ProbePhase::HeaderReceived);
+            assert_eq!(rx.recv_timeout(crate::library::TEST_LIVENESS).unwrap(), ProbePhase::HeaderReceived);
         });
         let mut phases = Vec::new();
-        let state = observed_status(&socket, Duration::from_secs(3), Some(&mut |p| {
+        let state = observed_status(&socket, crate::library::TEST_LIVENESS, Some(&mut |p| {
             phases.push(p);
             if matches!(p, ProbePhase::FirstResponse | ProbePhase::HeaderReceived) { tx.send(p).unwrap(); }
         })).unwrap();
@@ -1179,7 +1179,7 @@ mod tests {
             c.write_all(b"HTTP/1.0 200 OK\r\n\r\ninvalid-generated-json").unwrap();
         });
         let mut phases = Vec::new();
-        let error = observed_status(&socket, Duration::from_secs(2), Some(&mut |p| phases.push(p))).unwrap_err();
+        let error = observed_status(&socket, crate::library::TEST_LIVENESS, Some(&mut |p| phases.push(p))).unwrap_err();
         server.join().unwrap();
         for age in [SOCKET_START_WINDOW, Duration::from_secs(6), SOCKET_MISSING_WINDOW] {
             assert_eq!(poll_interval(true, false, false, Some(age), error.kind() == io::ErrorKind::NotFound), Duration::from_secs(3));
@@ -1476,9 +1476,9 @@ mod tests {
             }
             requests
         });
-        let body = local_status(&socket, Duration::from_secs(3)).unwrap();
+        let body = local_status(&socket, crate::library::TEST_LIVENESS).unwrap();
         assert_eq!(parse_status(&body).unwrap().status, "Connected");
-        assert!(local_status(&socket, Duration::from_secs(3)).is_err());
+        assert!(local_status(&socket, crate::library::TEST_LIVENESS).is_err());
         let requests = server.join().unwrap();
         assert!(requests[0].starts_with("GET /localapi/v0/status?peers=false HTTP/1.0\r\n"));
         assert!(requests[0].contains("Host: local-tailscaled.sock\r\n"));
