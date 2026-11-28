@@ -54,6 +54,10 @@ jobs:
           done
           sudo apt-get update
           sudo apt-get install -y cpio squashfs-tools podman ffmpeg "${runtime[@]}"
+      - name: Install the pinned cargo-about for the third-party notices
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("tools/notices/notices.toml", "rb"))["cargo_about"])')
+          cargo install --locked cargo-about --version "$version" --features cli
       - name: Fetch locked Cargo sources, profile q2nd and build the paired target
         run: |
           nightly=$(jq -er .rust_toolchain build/stock-rc-inputs/q2-os/os/sources.json)

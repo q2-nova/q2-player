@@ -10,6 +10,8 @@ import re
 import subprocess
 import sys
 
+import third_party_notices
+
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = 'mipsel-q2-os-linux-gnu'
 SDK_PREFIX = 'mipsel-buildroot-linux-gnu-'
@@ -18,6 +20,10 @@ PACKAGES = ('q2nd', 'q2-portal')
 # emulator diagnostic build adds DIAGNOSTIC_FEATURES to q2nd.
 RELEASE_FEATURES = {'q2nd': [], 'q2-portal': []}
 DIAGNOSTIC_FEATURES = ['stall-sampler']
+# Cargo features of the standard library each binary is built with (-Zbuild-std).
+STD_FEATURES = ('panic-unwind', 'backtrace', 'backtrace-trace-only')
+# The third-party notices of each binary are written beside it as NAME + this.
+NOTICES = '.THIRD-PARTY-NOTICES'
 
 
 def git(path, *args):
@@ -108,6 +114,9 @@ def main():
     compiler_receipt = compiler / 'x2000-toolchain.json'
     if json.loads(compiler_receipt.read_text())['pin']['rust_toolchain'] != rust_toolchain:
         parser.error('OS Rust version and X2000 compiler disagree')
+    std_library = compiler / 'lib/rustlib/src/rust/library'
+    if not (std_library / 'std/Cargo.toml').is_file():
+        parser.error(f'the X2000 compiler has no standard library source: {std_library}')
     target_spec = x2000.spec(json.loads(target_base.read_text()))
     identities = {
         'compiler_receipt': sha(compiler_receipt), 'rustc': sha(compiler / 'bin/rustc'),
@@ -170,9 +179,26 @@ def main():
         env['Q2_UNWIND_PREFIX'] = str(args.unwinder.resolve())
     base = ['cargo', '+' + rust_toolchain, 'build', '--release', '--offline', '--locked',
             '-Zbuild-std=std,panic_abort',
-            '-Zbuild-std-features=panic-unwind,backtrace,backtrace-trace-only',
+            '-Zbuild-std-features=' + ','.join(STD_FEATURES),
             '-Zjson-target-spec', '--target', target]
     packages = ('q2nd',) if args.profile_generate else PACKAGES
+    # Each binary's third-party notices: its Cargo packages for the target, the
+    # standard library this compiler builds and the bundled code of
+    # tools/notices/notices.toml. A license outside tools/notices/about.toml's
+    # accepted list, or a package without license text, stops the build here.
+    notices = {'tool': None, 'config_sha256': third_party_notices.config_identity(), 'files': {}}
+    for name in packages:
+        try:
+            text, summary = third_party_notices.generate(
+                name, features=features[name], no_default_features=name == 'q2nd', toolchain=rust_toolchain,
+                std_library=std_library, std_features=STD_FEATURES)
+        except SystemExit as error:
+            parser.error(f'{name} third-party notices: {error}')
+        path = out / (name + NOTICES)
+        with path.open('x') as stream:
+            stream.write(text)
+        notices['tool'] = summary['tool']
+        notices['files'][name] = {'path': path.name, 'sha256': sha(path)}
     for name in packages:
         flags = rustflags.copy()
         options = []
@@ -215,7 +241,8 @@ def main():
                    'release_eligible': not (args.emulator_diagnostics or args.profile_generate),
                    'pgo': pgo,
                    'features': features, 'feature_set_sha256': feature_set,
-                   'components': component_commits, 'inputs_sha256': identities, 'artifacts': artifacts}, receipt, indent=2)
+                   'components': component_commits, 'inputs_sha256': identities, 'artifacts': artifacts,
+                   'third_party_notices': notices}, receipt, indent=2)
         receipt.write('\n')
 
 

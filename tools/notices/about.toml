@@ -1,0 +1,50 @@
+# cargo-about configuration of tools/third_party_notices.py.
+#
+# A dependency whose license expression these licenses cannot satisfy fails
+# the notices check and the target build. For an OR expression cargo-about
+# takes the first license of this list that satisfies it.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0",
+    # File-level copyleft: the source of these files, with any changes, is
+    # available. symphonia (crates/vendor, changed) and cssparser, selectors
+    # and dtoa-short (unchanged) use it.
+    "MPL-2.0",
+]
+# The Q2 target, mipsel-q2-os-linux-gnu, is a custom target spec; this triple
+# has the same cfg values for dependency selection.
+targets = ["mipsel-unknown-linux-gnu"]
+# Build scripts, proc-macro build dependencies and test code are not in the
+# shipped binaries.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# The repository's own packages (GPL-3.0-or-later). tools/notices/notices.toml
+# lists them as first party; the notices leave them out.
+[q2nd]
+accepted = ["GPL-3.0-or-later"]
+
+[q2-portal]
+accepted = ["GPL-3.0-or-later"]
+
+[q2-portal-trace]
+accepted = ["GPL-3.0-or-later"]
+
+[subsonic]
+accepted = ["GPL-3.0-or-later"]
+
+[q2-machines]
+accepted = ["GPL-3.0-or-later"]
+
+[q2-bt]
+accepted = ["GPL-3.0-or-later"]
+
+# libopenaptx 0.2.0, linked statically with a relink procedure (docs/relink.md).
+[q2-aptx]
+accepted = ["LGPL-2.1-or-later"]

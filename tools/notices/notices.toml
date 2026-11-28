@@ -1,0 +1,58 @@
+# Third-party notices of the binaries this repository ships
+# (tools/third_party_notices.py; cargo-about reads about.toml beside this file).
+
+# The cargo-about release every generation uses:
+#   cargo install --locked cargo-about --version 0.9.3 --features cli
+cargo_about = "0.9.3"
+
+# Packages of this repository under its own license, GPL-3.0-or-later. They
+# are not third-party software and the notices leave them out.
+first_party = ["q2nd", "q2-portal", "q2-portal-trace", "subsonic", "q2-machines", "q2-bt"]
+
+# The binaries, with the Cargo features of a release build (tools/build-target.py).
+[binaries.q2nd]
+manifest = "crates/q2nd/Cargo.toml"
+no_default_features = true
+
+[binaries.q2-portal]
+manifest = "crates/portal/Cargo.toml"
+
+# Third-party code compiled into a package from files that are not a Cargo
+# package of their own: the notices of a binary include an entry when its
+# package is in the binary's dependency graph. Paths are relative to the
+# repository root.
+[[bundled]]
+package = "q2nd"
+name = "Sonic library"
+source = "crates/q2nd/vendor/sonic"
+license = "Apache-2.0"
+files = ["crates/q2nd/vendor/sonic/LICENSE"]
+
+[[bundled]]
+package = "q2nd"
+name = "Saluki DDSketch mapping"
+source = "crates/q2nd/vendor/saluki-ddsketch"
+license = "Apache-2.0"
+files = ["crates/q2nd/vendor/saluki-ddsketch/LICENSE", "crates/q2nd/vendor/saluki-ddsketch/NOTICE"]
+
+[[bundled]]
+package = "q2-aac"
+name = "VisualOn AAC encoder (vo-aacenc)"
+source = "crates/codecs/q2-aac/vendor/vo-aacenc"
+license = "Apache-2.0"
+files = ["crates/codecs/q2-aac/vendor/vo-aacenc/LICENSE", "crates/codecs/q2-aac/vendor/vo-aacenc/NOTICE",
+         "crates/codecs/q2-aac/vendor/vo-aacenc/aacenc/NOTICE"]
+
+[[bundled]]
+package = "q2-aptx"
+name = "libopenaptx 0.2.0"
+source = "crates/codecs/q2-aptx/vendor/openaptx"
+license = "LGPL-2.1-or-later"
+files = ["crates/codecs/q2-aptx/vendor/openaptx/LICENSE"]
+
+[[bundled]]
+package = "q2-ldac"
+name = "AOSP libldac"
+source = "crates/codecs/q2-ldac/vendor/libldac"
+license = "Apache-2.0"
+files = ["crates/codecs/q2-ldac/vendor/libldac/LICENSE", "crates/codecs/q2-ldac/vendor/libldac/NOTICE"]

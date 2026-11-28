@@ -86,5 +86,9 @@ version 3 or (at your option) any later version (`GPL-3.0-or-later`). See
 [COPYING](COPYING). The codec packages, vendored libraries, fonts, datasets
 and other third-party material carry their own licenses and notices.
 
+The installed image carries the third-party notices of q2nd and q2-portal in
+`/usr/share/licenses/q2nd/` and `/usr/share/licenses/q2-portal/`
+([how they are generated](docs/target-build.md#third-party-notices)).
+
 Binary releases include libopenaptx source, notices and the LGPL license.
 [How to rebuild with a modified libopenaptx](docs/relink.md)

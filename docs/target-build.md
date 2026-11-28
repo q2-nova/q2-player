@@ -17,9 +17,10 @@ python3 tools/build-target.py \
 ```
 
 The build runs Cargo offline and produces `q2nd` and `q2-portal` from the same
-commit. Keep both executables, `source-commit`, `result.json`, and the
-`symbols/` directory with the output when transferring the pair to the
-image builder. The image builder takes `--app build/target-player/q2nd`.
+commit. Keep both executables, their `.THIRD-PARTY-NOTICES` files,
+`source-commit`, `result.json`, and the `symbols/` directory with the output
+when transferring the pair to the image builder. The image builder takes
+`--app build/target-player/q2nd`.
 The symbols directory holds the unstripped and debug files separately from
 the executables installed on the device. `tools/release-symbols.py pack`
 archives it with `result.json` as `q2nd-symbols.tar.gz`, the release asset
@@ -32,6 +33,28 @@ SHA-256 of each supplied optional input.
 `result.json` also records the build's `profile`, `release_eligible`, the
 Cargo `features` of each package and `feature_set_sha256`, their digest. A
 release build has `profile` `release` and enables no optional q2nd feature.
+
+## Third-party notices
+
+Before compiling, the build writes `q2nd.THIRD-PARTY-NOTICES` and
+`q2-portal.THIRD-PARTY-NOTICES` with `tools/third_party_notices.py`, which
+needs the cargo-about release pinned in `tools/notices/notices.toml`:
+
+```sh
+cargo install --locked cargo-about --version 0.9.3 --features cli
+```
+
+Each file lists the Cargo packages of that executable for the Q2 target, the
+standard library crates the X2000 compiler builds and the bundled C and
+Rust code that `notices.toml` names (sonic, the DDSketch mapping, vo-aacenc,
+libopenaptx, libldac), then each distinct license text once.
+`result.json` records their SHA-256 under `third_party_notices`. A
+dependency whose license is not in the `accepted` list of
+`tools/notices/about.toml`, or which has no license text, stops the build;
+`python3 tools/third_party_notices.py check` runs the same test in CI. The
+image builder installs the files as
+`/usr/share/licenses/q2nd/THIRD-PARTY-NOTICES` and
+`/usr/share/licenses/q2-portal/THIRD-PARTY-NOTICES`.
 
 ## Profile-guided release build
 

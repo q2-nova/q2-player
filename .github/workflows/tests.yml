@@ -28,6 +28,24 @@ jobs:
           CARGO_BUILD_JOBS: '4'
         run: cargo test --workspace --locked --offline
 
+  notices:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install the repository toolchain
+        run: rustup toolchain install
+      - name: Install the pinned cargo-about for the third-party notices
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("tools/notices/notices.toml", "rb"))["cargo_about"])')
+          cargo install --locked cargo-about --version "$version" --features cli
+      - name: Fetch locked Cargo sources
+        run: cargo fetch --locked
+      - name: Check the licenses and notices of q2nd and q2-portal
+        run: python3 tools/third_party_notices.py check
+
   python:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
