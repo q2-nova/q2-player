@@ -473,7 +473,7 @@ mod tests {
     }
 
     fn wait_for(mut condition: impl FnMut() -> bool) {
-        let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let until = std::time::Instant::now() + crate::library::TEST_LIVENESS;
         while !condition() {
             assert!(std::time::Instant::now() < until, "event monitor made no progress");
             std::thread::sleep(std::time::Duration::from_millis(1));
@@ -542,18 +542,26 @@ mod tests {
         let (socket,events)=std::os::unix::net::UnixDatagram::pair().unwrap();
         let devices=Arc::new(Mutex::new(vec![dac(1,2,9,3)]));
         let scans=Arc::new(AtomicU32::new(0));
+        // The first scan waits until the test has installed its notifier, so
+        // the first publication's notification is received here and cannot
+        // arrive later in place of one the untrusted sender would cause.
+        let (release_first,first_gate)=std::sync::mpsc::channel::<()>();let first_gate=Mutex::new(Some(first_gate));
         let scan:Scan={let devices=devices.clone();let scans=scans.clone();Arc::new(move |_| {
             assert!(!crate::rt::on_executor() && crate::rt::on_pool());
-            scans.fetch_add(1,Ordering::SeqCst);devices.lock().unwrap().clone()
+            scans.fetch_add(1,Ordering::SeqCst);
+            if let Some(gate)=first_gate.lock().unwrap().take() {gate.recv().unwrap();}
+            devices.lock().unwrap().clone()
         })};
         events.send(b"+SUBSYSTEM=sound\0").unwrap();
         let monitor=Monitor::with_socket(socket.into(),vec![],scan,receive_fixture).unwrap();
-        wait_for(||monitor.snapshot().route==Route::Usb(dac(1,2,9,3)));
-        let first=monitor.snapshot();
-        assert_eq!(scans.load(Ordering::SeqCst),1);
         let changed=monitor.shared.clone();
         let (sent,got)=std::sync::mpsc::channel();
         *changed.notify.lock().unwrap()=Some(Arc::new(move||{sent.send(()).unwrap();}));
+        release_first.send(()).unwrap();
+        got.recv_timeout(crate::library::TEST_LIVENESS).unwrap();
+        let first=monitor.snapshot();
+        assert_eq!(first.route,Route::Usb(dac(1,2,9,3)));
+        assert_eq!(scans.load(Ordering::SeqCst),1);
         // A userspace-shaped message never retires/requalifies this route.
         events.send(b"?ACTION=remove\0SUBSYSTEM=usb\0DEVPATH=/devices/platform/usb/1-1\0").unwrap();
         events.send(b"+SUBSYSTEM=power_supply\0").unwrap();
@@ -565,8 +573,8 @@ mod tests {
         events.send(b"+ACTION=remove\0SUBSYSTEM=usb\0DEVPATH=/devices/platform/usb/1-1\0").unwrap();
         wait_for(||monitor.snapshot().generation>=first.generation+2);
         assert_eq!(monitor.snapshot().route,first.route,"same final metadata still reopens after remove/add");
-        got.recv_timeout(std::time::Duration::from_secs(3)).unwrap();
-        got.recv_timeout(std::time::Duration::from_secs(3)).unwrap();
+        got.recv_timeout(crate::library::TEST_LIVENESS).unwrap();
+        got.recv_timeout(crate::library::TEST_LIVENESS).unwrap();
         assert!(got.try_recv().is_err());
         drop(monitor);
         assert_eq!(Arc::strong_count(&changed),1,"joined task released its policy");
